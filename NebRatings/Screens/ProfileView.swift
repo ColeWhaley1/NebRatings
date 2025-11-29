@@ -36,7 +36,7 @@ struct ProfileView: View {
                 }
                 .padding(.vertical, 4)
             } else {
-                ContentUnavailableView("No profile yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("Sign in with Firebase to load your neb persona."))
+                ContentUnavailableView("No profile yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("Sign in to load your neb persona."))
             }
         }
     }
