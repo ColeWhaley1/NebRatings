@@ -10,10 +10,10 @@ import SwiftData
 
 @main
 struct NebRatingsApp: App {
+    @State private var store = NebRatingsStore()
+
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
+        let schema = Schema([])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
 
         do {
@@ -26,6 +26,7 @@ struct NebRatingsApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(store)
         }
         .modelContainer(sharedModelContainer)
     }
