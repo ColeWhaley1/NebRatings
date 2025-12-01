@@ -38,6 +38,13 @@ struct ShowDetailView: View {
                         .frame(height: 250)
                         .frame(maxWidth: .infinity)
                         .clipped()
+                        .overlay(
+                            LinearGradient(
+                                colors: [.clear, Color(.systemGroupedBackground).opacity(0.8)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                 }
                 
                 HStack(spacing: 20) {
@@ -78,17 +85,25 @@ struct ShowDetailView: View {
             if show.posterURL != nil {
                 AsyncImageView(urlString: show.posterURL)
                     .frame(width: 120, height: 180)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color(.separator), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 14)
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.purple.opacity(0.4), Color.blue.opacity(0.3)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 2
+                            )
                     )
+                    .shadow(color: .purple.opacity(0.3), radius: 12, x: 0, y: 6)
             }
             
             // Details
             VStack(alignment: .leading, spacing: 12) {
                 Text(show.synopsis)
-                    .font(.body)
+                    .font(.system(size: 16, weight: .regular, design: .default))
                     .foregroundStyle(.primary)
                     .fixedSize(horizontal: false, vertical: true)
                 
@@ -100,10 +115,12 @@ struct ShowDetailView: View {
                             .foregroundStyle(.primary)
                     }
                     HStack(spacing: 4) {
-                        Image(systemName: "play.tv")
+                        Image(systemName: "info.circle")
                             .foregroundStyle(.secondary)
+                            .font(.caption)
                         Text(show.streamingService)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
                     }
                 }
                 .font(.body)
@@ -124,16 +141,22 @@ struct ShowDetailView: View {
     private var reviewsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Neb Reviews")
-                .font(.title3.bold())
+                .font(.system(size: 24, weight: .bold, design: .default))
                 .foregroundStyle(.primary)
             if reviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
+                    .padding(.top, 8)
             } else {
                 VStack(spacing: 16) {
                     ForEach(reviews) { review in
                         ReviewCard(review: review)
+                            .transition(.asymmetric(
+                                insertion: .move(edge: .trailing).combined(with: .opacity),
+                                removal: .opacity
+                            ))
                     }
                 }
+                .animation(.spring(response: 0.5, dampingFraction: 0.8), value: reviews.count)
             }
         }
     }
@@ -141,7 +164,7 @@ struct ShowDetailView: View {
     private var addReviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Drop Your Nebs")
-                .font(.title3.bold())
+                .font(.system(size: 24, weight: .bold, design: .default))
                 .foregroundStyle(.primary)
             VStack(alignment: .leading, spacing: 12) {
                 Text("Rating")
@@ -149,7 +172,13 @@ struct ShowDetailView: View {
                     .foregroundStyle(.primary)
                 NebRatingView(rating: newNebs)
                 Slider(value: $newNebs, in: 0...5, step: 0.5)
-                    .tint(.purple)
+                    .tint(
+                        LinearGradient(
+                            colors: [Color.purple, Color.blue],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text("Comment")
@@ -167,9 +196,15 @@ struct ShowDetailView: View {
             Button(action: addReview) {
                 Label("Post Review", systemImage: "paperplane.fill")
                     .frame(maxWidth: .infinity)
+                    .font(.headline)
             }
             .buttonStyle(.borderedProminent)
+            .tint(.purple)
+            .controlSize(.large)
+            .shadow(color: .purple.opacity(0.3), radius: 8, x: 0, y: 4)
             .disabled(!formIsValid)
+            .scaleEffect(formIsValid ? 1.0 : 0.98)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: formIsValid)
         }
     }
 

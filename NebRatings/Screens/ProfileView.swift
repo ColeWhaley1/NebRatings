@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ProfileView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
-    @AppStorage("colorScheme") private var colorScheme: String = "system"
+    @AppStorage("colorScheme") private var colorScheme: String = "dark"
 
     var body: some View {
         NavigationStack {
@@ -31,7 +31,7 @@ struct ProfileView: View {
             if let user = store.currentUser {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(user.displayName)
-                        .font(.title3.bold())
+                        .font(.system(size: 22, weight: .bold, design: .default))
                     Text(user.bio)
                         .font(.body)
                         .foregroundStyle(.secondary)

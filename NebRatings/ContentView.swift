@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
-    @AppStorage("colorScheme") private var colorScheme: String = "system"
+    @AppStorage("colorScheme") private var colorScheme: String = "dark"
     
     private var selectedColorScheme: ColorScheme? {
         switch colorScheme {
