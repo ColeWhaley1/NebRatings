@@ -6,8 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		DD308D232EDBDEC800FC8D49 /* Config.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = DD308D222EDBDEC800FC8D49 /* Config.xcconfig */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		DD308CEC2EDA7F7F00FC8D49 /* NebRatings.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NebRatings.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD308D222EDBDEC800FC8D49 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -47,6 +52,7 @@
 			children = (
 				DD308CEE2EDA7F7F00FC8D49 /* NebRatings */,
 				DD308CED2EDA7F7F00FC8D49 /* Products */,
+				DD308D222EDBDEC800FC8D49 /* Config.xcconfig */,
 			);
 			sourceTree = "<group>";
 		};
@@ -122,6 +128,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD308D232EDBDEC800FC8D49 /* Config.xcconfig in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -140,6 +147,7 @@
 /* Begin XCBuildConfiguration section */
 		DD308CFB2EDA7F8100FC8D49 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DD308D222EDBDEC800FC8D49 /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -174,6 +182,7 @@
 		};
 		DD308CFC2EDA7F8100FC8D49 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DD308D222EDBDEC800FC8D49 /* Config.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -208,6 +217,7 @@
 		};
 		DD308CFD2EDA7F8100FC8D49 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DD308D222EDBDEC800FC8D49 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
@@ -272,6 +282,7 @@
 		};
 		DD308CFE2EDA7F8100FC8D49 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = DD308D222EDBDEC800FC8D49 /* Config.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;

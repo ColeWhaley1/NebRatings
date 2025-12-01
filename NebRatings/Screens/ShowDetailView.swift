@@ -8,19 +8,20 @@
 import SwiftUI
 
 struct ShowDetailView: View {
-    @Environment(NebRatingsStore.self) var store: NebRatingsStore
+    @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     let show: Show
 
     @State private var newAuthor = ""
     @State private var newComment = ""
     @State private var newNebs: Double = 3
+    @State private var showReviews: [Review] = []
     
     init(show: Show) {
         self.show = show
     }
 
     private var reviews: [Review] {
-        store.reviews(for: show)
+        showReviews
     }
 
     var body: some View {
@@ -37,6 +38,14 @@ struct ShowDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
         }
         .background(Color(.systemGroupedBackground))
+        .task {
+            await loadShowReviews()
+        }
+    }
+    
+    private func loadShowReviews() async {
+        await store.queryReviews(showID: show.id)
+        showReviews = store.reviews(for: show)
     }
 
     private var header: some View {
@@ -114,6 +123,11 @@ struct ShowDetailView: View {
         newAuthor = ""
         newComment = ""
         newNebs = 3
+        
+        // Refresh reviews for this show
+        Task {
+            await loadShowReviews()
+        }
     }
 }
 

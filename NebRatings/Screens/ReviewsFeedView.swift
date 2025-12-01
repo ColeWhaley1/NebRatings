@@ -28,27 +28,7 @@ struct ReviewsFeedView: View {
     @State private var searchText = ""
     @State private var categoryFilter: CategoryFilter = .all
     @State private var minimumRating: Double = 0
-
-    private var filteredReviews: [Review] {
-        store.reviews.filter { review in
-            matchesSearch(review: review)
-            && matchesCategory(review: review)
-            && review.nebRating >= minimumRating
-        }
-    }
-
-    private func matchesSearch(review: Review) -> Bool {
-        guard !searchText.isEmpty else { return true }
-        let lowered = searchText.lowercased()
-        return review.comment.lowercased().contains(lowered)
-        || review.author.lowercased().contains(lowered)
-        || review.showTitle.lowercased().contains(lowered)
-    }
-
-    private func matchesCategory(review: Review) -> Bool {
-        guard let selectedCategory = categoryFilter.category else { return true }
-        return store.show(for: review)?.category == selectedCategory
-    }
+    @State private var queryTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
@@ -59,6 +39,37 @@ struct ReviewsFeedView: View {
             .listStyle(.insetGrouped)
             .navigationTitle("Community Nebs")
             .searchable(text: $searchText, prompt: "Search reviews")
+            .onAppear {
+                performQuery()
+            }
+            .onChange(of: searchText) { _, _ in
+                performQuery()
+            }
+            .onChange(of: categoryFilter) { _, _ in
+                performQuery()
+            }
+            .onChange(of: minimumRating) { _, _ in
+                performQuery()
+            }
+        }
+    }
+    
+    private func performQuery() {
+        // Cancel previous query task
+        queryTask?.cancel()
+        
+        // Debounce query - wait 0.3 seconds after filter changes
+        queryTask = Task {
+            try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
+            
+            guard !Task.isCancelled else { return }
+            
+            let searchQuery = searchText.isEmpty ? nil : searchText
+            await store.queryReviews(
+                searchText: searchQuery,
+                category: categoryFilter.category,
+                minimumRating: minimumRating > 0 ? minimumRating : nil
+            )
         }
     }
 
@@ -83,10 +94,17 @@ struct ReviewsFeedView: View {
 
     private var reviewsSection: some View {
         Section("Reviews") {
-            if filteredReviews.isEmpty {
+            if store.isQueryingReviews {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .padding()
+            } else if store.reviews.isEmpty {
                 ContentUnavailableView("No reviews match", systemImage: "text.magnifyingglass", description: Text("Try adjusting the filters."))
             } else {
-                ForEach(filteredReviews) { review in
+                ForEach(store.reviews) { review in
                     let show = store.show(for: review)
                     ReviewCard(review: review,
                                showTitle: show?.title ?? review.showTitle,
