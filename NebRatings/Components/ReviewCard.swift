@@ -18,32 +18,37 @@ struct ReviewCard: View {
                 HStack(spacing: 8) {
                     if let showCategory {
                         Text(showCategory.rawValue.uppercased())
-                            .font(.caption2.bold())
+                            .font(.caption.bold())
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
                             .background(showCategory.badgeColor.opacity(0.15), in: Capsule())
                             .foregroundStyle(showCategory.badgeColor)
                     }
                     Text(showTitle)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
 
             HStack {
                 Text(review.author)
                     .font(.headline)
+                    .foregroundStyle(.primary)
                 Spacer()
                 NebRatingView(rating: review.nebRating)
             }
             Text(review.comment)
                 .font(.body)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
             Text(review.timestamp.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
         .padding()
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

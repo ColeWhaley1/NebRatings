@@ -16,10 +16,15 @@ struct NebRatingView: View {
             ForEach(1...maxNebs, id: \.self) { index in
                 let filled = index <= Int(round(rating))
                 Image(systemName: filled ? "moon.stars.fill" : "moon.stars")
-                    .foregroundStyle(filled ? Color.purple : Color.gray.opacity(0.4))
+                    .foregroundStyle(filled ? Color.purple : Color(.tertiaryLabel))
             }
+            Text(String(format: "%.1f", rating))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
         .accessibilityLabel("\(rating, specifier: "%.1f") out of \(maxNebs) nebs")
     }
 }
+
+
 

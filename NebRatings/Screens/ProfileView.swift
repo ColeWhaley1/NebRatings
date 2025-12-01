@@ -9,12 +9,14 @@ import SwiftUI
 
 struct ProfileView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
+    @AppStorage("colorScheme") private var colorScheme: String = "system"
 
     var body: some View {
         NavigationStack {
             List {
                 profileSection
                 reviewsSection
+                settingsSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Profile")
@@ -54,6 +56,17 @@ struct ProfileView: View {
                 }
                 .listRowSeparator(.hidden)
             }
+        }
+    }
+    
+    private var settingsSection: some View {
+        Section("Settings") {
+            Picker("Appearance", selection: $colorScheme) {
+                Text("System").tag("system")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
+            }
+            .pickerStyle(.menu)
         }
     }
 }

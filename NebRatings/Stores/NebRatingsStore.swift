@@ -10,12 +10,12 @@ import Foundation
 @MainActor
 @Observable
 final class NebRatingsStore {
-    private(set) var shows: [Show] = []
+    var shows: [Show] = []
     private(set) var reviews: [Review] = []
     private(set) var currentUser: UserProfile?
     private(set) var userReviews: [Review] = []
     
-    private(set) var isSearchingShows = false
+    var isSearchingShows = false
     private(set) var isQueryingReviews = false
 
     private let catalogService: CatalogService
@@ -37,7 +37,7 @@ final class NebRatingsStore {
         }
     }
 
-    func searchShows(query: String) async {
+    func searchShows(query: String, category: Show.Category? = nil) async {
         guard !query.isEmpty else {
             shows = []
             return
@@ -47,7 +47,7 @@ final class NebRatingsStore {
         defer { isSearchingShows = false }
         
         do {
-            let results = try await catalogService.searchShows(query: query)
+            let results = try await catalogService.searchShows(query: query, category: category)
             shows = results
             
             // Update cache
@@ -57,6 +57,8 @@ final class NebRatingsStore {
         } catch {
             // Handle error - could show error state
             print("Error searching shows: \(error)")
+            // Show empty results on error rather than crashing
+            shows = []
         }
     }
     
@@ -103,7 +105,7 @@ final class NebRatingsStore {
         }
     }
     
-    func fetchShowDetails(id: UUID) async -> Show? {
+    func fetchShowDetails(id: UUID, category: Show.Category) async -> Show? {
         // Check cache first
         if let cached = showCache[id] {
             return cached
@@ -111,7 +113,7 @@ final class NebRatingsStore {
         
         // Fetch from API
         do {
-            if let show = try await catalogService.fetchShowDetails(id: id.uuidString) {
+            if let show = try await catalogService.fetchShowDetails(id: id.uuidString, category: category) {
                 showCache[id] = show
                 return show
             }

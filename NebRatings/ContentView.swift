@@ -8,6 +8,19 @@
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage("colorScheme") private var colorScheme: String = "system"
+    
+    private var selectedColorScheme: ColorScheme? {
+        switch colorScheme {
+        case "light":
+            return .light
+        case "dark":
+            return .dark
+        default:
+            return nil // system
+        }
+    }
+    
     var body: some View {
         TabView {
             SearchShowsView()
@@ -25,6 +38,7 @@ struct ContentView: View {
                     Label("Profile", systemImage: "person.crop.circle")
                 }
         }
+        .preferredColorScheme(selectedColorScheme)
     }
 }
 

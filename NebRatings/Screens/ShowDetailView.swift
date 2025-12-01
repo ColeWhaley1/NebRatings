@@ -11,33 +11,58 @@ struct ShowDetailView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     let show: Show
 
-    @State private var newAuthor = ""
     @State private var newComment = ""
     @State private var newNebs: Double = 3
-    @State private var showReviews: [Review] = []
     
     init(show: Show) {
         self.show = show
     }
 
     private var reviews: [Review] {
-        showReviews
+        store.reviews(for: show)
+    }
+    
+    private var yearFormatted: String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .none
+        formatter.usesGroupingSeparator = false
+        return formatter.string(from: NSNumber(value: show.year)) ?? "\(show.year)"
     }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                Divider()
-                reviewsSection
-                Divider()
-                addReviewSection
+            VStack(alignment: .leading, spacing: 0) {
+                // Backdrop image - only show if backdrop exists
+                if let backdropURL = show.backdropURL, !backdropURL.isEmpty {
+                    AsyncImageView(urlString: backdropURL)
+                        .frame(height: 250)
+                        .frame(maxWidth: .infinity)
+                        .clipped()
+                }
+                
+                HStack(spacing: 20) {
+                    Spacer()
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 24) {
+                        header
+                        Divider()
+                            .background(Color(.separator))
+                        reviewsSection
+                        Divider()
+                            .background(Color(.separator))
+                        addReviewSection
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer()
+                        .frame(width: 20)
+                }
+                .padding(.vertical, 20)
             }
-            .padding()
-            .navigationTitle(show.title)
-            .navigationBarTitleDisplayMode(.inline)
         }
+        .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
+        .navigationTitle(show.title)
+        .navigationBarTitleDisplayMode(.inline)
         .task {
             await loadShowReviews()
         }
@@ -45,22 +70,54 @@ struct ShowDetailView: View {
     
     private func loadShowReviews() async {
         await store.queryReviews(showID: show.id)
-        showReviews = store.reviews(for: show)
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(show.tagline)
-                .font(.title2.bold())
-            Text(show.synopsis)
-                .font(.body)
-                .foregroundStyle(.secondary)
-            HStack {
-                Label("\(show.year)", systemImage: "calendar")
-                Label(show.streamingService, systemImage: "play.tv")
+        HStack(alignment: .top, spacing: 16) {
+            // Poster - only show if poster exists
+            if show.posterURL != nil {
+                AsyncImageView(urlString: show.posterURL)
+                    .frame(width: 120, height: 180)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color(.separator), lineWidth: 1)
+                    )
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
+            
+            // Details
+            VStack(alignment: .leading, spacing: 12) {
+                Text(show.synopsis)
+                    .font(.body)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "calendar")
+                            .foregroundStyle(.secondary)
+                        Text(yearFormatted)
+                            .foregroundStyle(.primary)
+                    }
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.tv")
+                            .foregroundStyle(.secondary)
+                        Text(show.streamingService)
+                            .foregroundStyle(.primary)
+                    }
+                }
+                .font(.body)
+                
+                if show.averageNebs > 0 {
+                    HStack(spacing: 8) {
+                        NebRatingView(rating: show.averageNebs)
+                        Text("\(show.reviews.count) reviews")
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -68,6 +125,7 @@ struct ShowDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Neb Reviews")
                 .font(.title3.bold())
+                .foregroundStyle(.primary)
             if reviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
             } else {
@@ -84,21 +142,27 @@ struct ShowDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Drop Your Nebs")
                 .font(.title3.bold())
-            TextField("Author name", text: $newAuthor)
-                .textFieldStyle(.roundedBorder)
-            VStack(alignment: .leading) {
+                .foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 12) {
                 Text("Rating")
                     .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
                 NebRatingView(rating: newNebs)
                 Slider(value: $newNebs, in: 0...5, step: 0.5)
                     .tint(.purple)
             }
-            VStack(alignment: .leading) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Comment")
                     .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
                 TextEditor(text: $newComment)
                     .frame(minHeight: 120)
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.gray.opacity(0.3)))
+                    .scrollContentBackground(.hidden)
+                    .background(Color(.systemBackground))
+                    .foregroundColor(.primary)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
+                    .contentMargins(4.0)
             }
             Button(action: addReview) {
                 Label("Post Review", systemImage: "paperplane.fill")
@@ -110,24 +174,38 @@ struct ShowDetailView: View {
     }
 
     private var formIsValid: Bool {
-        !newAuthor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func addReview() {
         guard formIsValid else { return }
-        store.addReview(author: newAuthor.trimmingCharacters(in: .whitespacesAndNewlines),
+        let authorName = store.currentUser?.displayName ?? "Anonymous"
+        store.addReview(author: authorName,
                         comment: newComment.trimmingCharacters(in: .whitespacesAndNewlines),
                         rating: newNebs,
                         to: show)
-        newAuthor = ""
         newComment = ""
         newNebs = 3
-        
-        // Refresh reviews for this show
-        Task {
-            await loadShowReviews()
-        }
+    }
+}
+
+#Preview {
+    let show = Show.previewData[0]
+    let store = NebRatingsStore()
+    
+    return NavigationStack {
+        ShowDetailView(show: show)
+            .environment(store)
+    }
+}
+
+#Preview("Without Poster") {
+    let show = Show.previewData[4] // No poster show
+    let store = NebRatingsStore()
+    
+    return NavigationStack {
+        ShowDetailView(show: show)
+            .environment(store)
     }
 }
 

@@ -84,7 +84,7 @@ struct ReviewsFeedView: View {
 
             VStack(alignment: .leading) {
                 Text("Minimum rating: \(minimumRating, specifier: "%.1f") nebs")
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Slider(value: $minimumRating, in: 0...5, step: 0.5)
                     .tint(.purple)
