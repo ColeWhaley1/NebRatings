@@ -48,7 +48,6 @@ struct ContentView: View {
         .preferredColorScheme(selectedColorScheme)
     }
 }
-
 #Preview {
     ContentView()
         .environment(NebRatingsStore())
