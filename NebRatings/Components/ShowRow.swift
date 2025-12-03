@@ -24,19 +24,11 @@ struct ShowRow: View {
                 if let posterURL = show.posterURL {
                     AsyncImageView(urlString: posterURL)
                         .frame(width: 80, height: 120)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [Color.purple.opacity(0.3), Color.blue.opacity(0.2)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1
-                                )
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.gray.opacity(0.2), lineWidth: 0.5)
                         )
-                        .shadow(color: .purple.opacity(0.2), radius: 6, x: 0, y: 3)
                 } else {
                     // Placeholder to maintain consistent spacing
                     RoundedRectangle(cornerRadius: 8)
@@ -58,28 +50,20 @@ struct ShowRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(show.title)
-                        .font(.system(size: 18, weight: .semibold, design: .default))
+                        .font(.headline)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Text(show.category.rawValue)
-                        .font(.subheadline.bold())
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(
-                            LinearGradient(
-                                colors: [show.category.badgeColor.opacity(0.2), show.category.badgeColor.opacity(0.1)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            ),
-                            in: Capsule()
-                        )
+                        .font(.subheadline)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 2)
+                        .background(show.category.badgeColor.opacity(0.15), in: Capsule())
                         .foregroundStyle(show.category.badgeColor)
-                        .shadow(color: show.category.badgeColor.opacity(0.3), radius: 4, x: 0, y: 2)
                 }
                 
                 Text(show.synopsis)
-                    .font(.system(size: 15, weight: .regular, design: .default))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)

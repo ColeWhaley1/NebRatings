@@ -19,18 +19,10 @@ struct ReviewCard: View {
                     if let showCategory {
                         Text(showCategory.rawValue.uppercased())
                             .font(.caption.bold())
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                LinearGradient(
-                                    colors: [showCategory.badgeColor.opacity(0.25), showCategory.badgeColor.opacity(0.15)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                ),
-                                in: Capsule()
-                            )
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(showCategory.badgeColor.opacity(0.15), in: Capsule())
                             .foregroundStyle(showCategory.badgeColor)
-                            .shadow(color: showCategory.badgeColor.opacity(0.3), radius: 4, x: 0, y: 2)
                     }
                     Text(showTitle)
                         .font(.subheadline)
@@ -41,13 +33,13 @@ struct ReviewCard: View {
 
             HStack {
                 Text(review.author)
-                    .font(.system(size: 17, weight: .semibold, design: .default))
+                    .font(.headline)
                     .foregroundStyle(.primary)
                 Spacer()
                 NebRatingView(rating: review.nebRating)
             }
             Text(review.comment)
-                .font(.system(size: 16, weight: .regular, design: .default))
+                .font(.body)
                 .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
             Text(review.timestamp.formatted(date: .abbreviated, time: .shortened))
@@ -55,17 +47,8 @@ struct ReviewCard: View {
                 .foregroundStyle(.secondary)
         }
         .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.1), radius: 8, x: 0, y: 4)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color(.separator), lineWidth: 1.5)
-        )
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .transition(.scale.combined(with: .opacity))
     }
 }
 

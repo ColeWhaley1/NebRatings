@@ -16,23 +16,10 @@ struct NebRatingView: View {
             ForEach(1...maxNebs, id: \.self) { index in
                 let filled = index <= Int(round(rating))
                 Image(systemName: filled ? "moon.stars.fill" : "moon.stars")
-                    .foregroundStyle(
-                        filled ?
-                        LinearGradient(
-                            colors: [Color.purple, Color.purple.opacity(0.7)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ) :
-                        LinearGradient(
-                            colors: [Color(.tertiaryLabel), Color(.tertiaryLabel)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .shadow(color: filled ? Color.purple.opacity(0.4) : .clear, radius: 3, x: 0, y: 1)
+                    .foregroundStyle(filled ? Color.purple : Color(.tertiaryLabel))
             }
             Text(String(format: "%.1f", rating))
-                .font(.subheadline.bold())
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)

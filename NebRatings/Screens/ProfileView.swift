@@ -9,7 +9,7 @@ import SwiftUI
 
 struct ProfileView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
-    @AppStorage("colorScheme") private var colorScheme: String = "dark"
+    @AppStorage("colorScheme") private var colorScheme: String = "system"
 
     var body: some View {
         NavigationStack {
