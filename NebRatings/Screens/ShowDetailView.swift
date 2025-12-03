@@ -214,7 +214,7 @@ struct ShowDetailView: View {
 
     private func addReview() {
         guard formIsValid else { return }
-        let authorName = store.currentUser?.displayName ?? "Anonymous"
+        let authorName = store.currentUser?.name ?? "Anonymous"
         store.addReview(author: authorName,
                         comment: newComment.trimmingCharacters(in: .whitespacesAndNewlines),
                         rating: newNebs,

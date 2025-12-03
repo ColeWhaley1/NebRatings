@@ -12,7 +12,7 @@ struct NebRatingView: View {
     private let maxNebs = 5
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             ForEach(1...maxNebs, id: \.self) { index in
                 let filled = index <= Int(round(rating))
                 Image(systemName: filled ? "moon.stars.fill" : "moon.stars")
@@ -34,6 +34,8 @@ struct NebRatingView: View {
             Text(String(format: "%.1f", rating))
                 .font(.subheadline.bold())
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
         }
         .accessibilityLabel("\(rating, specifier: "%.1f") out of \(maxNebs) nebs")
     }

@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @AppStorage("colorScheme") private var colorScheme: String = "dark"
     
     private var selectedColorScheme: ColorScheme? {
@@ -22,21 +23,27 @@ struct ContentView: View {
     }
     
     var body: some View {
-        TabView {
-            SearchShowsView()
-                .tabItem {
-                    Label("Discover", systemImage: "magnifyingglass")
-                }
+        Group {
+            if store.isAuthenticated {
+                TabView {
+                    SearchShowsView()
+                        .tabItem {
+                            Label("Discover", systemImage: "magnifyingglass")
+                        }
 
-            ReviewsFeedView()
-                .tabItem {
-                    Label("Reviews", systemImage: "text.bubble")
-                }
+                    ReviewsFeedView()
+                        .tabItem {
+                            Label("Reviews", systemImage: "text.bubble")
+                        }
 
-            ProfileView()
-                .tabItem {
-                    Label("Profile", systemImage: "person.crop.circle")
+                    ProfileView()
+                        .tabItem {
+                            Label("Profile", systemImage: "person.crop.circle")
+                        }
                 }
+            } else {
+                SignInView()
+            }
         }
         .preferredColorScheme(selectedColorScheme)
     }

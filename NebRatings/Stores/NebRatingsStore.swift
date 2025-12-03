@@ -14,6 +14,7 @@ final class NebRatingsStore {
     private(set) var reviews: [Review] = []
     private(set) var currentUser: UserProfile?
     private(set) var userReviews: [Review] = []
+    private(set) var isAuthenticated = false
     
     var isSearchingShows = false
     private(set) var isQueryingReviews = false
@@ -21,19 +22,51 @@ final class NebRatingsStore {
     private let catalogService: CatalogService
     private let reviewService: ReviewService
     private let profileService: ProfileService
+    let authService: AuthService
     
     // Cache for searched shows to avoid re-fetching
     private var showCache: [UUID: Show] = [:]
 
     init(catalogService: CatalogService = TMDBService(),
          reviewService: ReviewService = FirebaseReviewService(),
-         profileService: ProfileService = FirebaseProfileService()) {
+         profileService: ProfileService = FirebaseProfileService(),
+         authService: AuthService = FirebaseAuthService()) {
         self.catalogService = catalogService
         self.reviewService = reviewService
         self.profileService = profileService
+        self.authService = authService
 
-        Task {
-            await loadUserProfile()
+        // Check if user is already authenticated
+        if let userID = authService.getCurrentUserID() {
+            isAuthenticated = true
+            Task {
+                await loadUserProfile()
+            }
+        }
+    }
+    
+    func signIn(userID: String) async {
+        isAuthenticated = true
+        await loadUserProfile()
+    }
+    
+    func createProfileIfNeeded(userID: String, name: String) async {
+        do {
+            try await profileService.createProfile(userID: userID, name: name)
+        } catch {
+            // If profile already exists, that's okay - just continue
+            print("Profile creation note: \(error.localizedDescription)")
+        }
+    }
+    
+    func signOut() async {
+        do {
+            try await authService.signOut()
+            isAuthenticated = false
+            currentUser = nil
+            userReviews = []
+        } catch {
+            print("Error signing out: \(error)")
         }
     }
 
@@ -89,16 +122,21 @@ final class NebRatingsStore {
     func loadUserProfile() async {
         do {
             let profile = try await profileService.fetchCurrentUser()
+            print(profile)
             currentUser = profile
             await loadUserReviews(for: profile.id)
         } catch {
-            // Ignore for now and keep placeholder user nil.
+            // Log error for debugging
+            print("Error loading user profile: \(error.localizedDescription)")
+            // Keep currentUser as nil if profile can't be loaded
+            currentUser = nil
         }
     }
 
     private func loadUserReviews(for userID: String) async {
         do {
             let reviews = try await profileService.fetchReviews(for: userID)
+            print(reviews)
             userReviews = reviews
         } catch {
             // Keep existing user reviews.
@@ -145,7 +183,7 @@ final class NebRatingsStore {
         reviews.insert(newReview, at: 0)
         
         // Update user reviews if it's the current user
-        if let user = currentUser, author == user.displayName {
+        if let user = currentUser, author == user.name {
             userReviews.insert(newReview, at: 0)
         }
 

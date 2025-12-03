@@ -30,11 +30,8 @@ struct ProfileView: View {
         Section("Account") {
             if let user = store.currentUser {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(user.displayName)
+                    Text(user.name)
                         .font(.system(size: 22, weight: .bold, design: .default))
-                    Text(user.bio)
-                        .font(.body)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
             } else {
@@ -67,6 +64,14 @@ struct ProfileView: View {
                 Text("Dark").tag("dark")
             }
             .pickerStyle(.menu)
+            
+            Button(role: .destructive, action: {
+                Task {
+                    await store.signOut()
+                }
+            }) {
+                Label("Sign Out", systemImage: "arrow.right.square")
+            }
         }
     }
 }
