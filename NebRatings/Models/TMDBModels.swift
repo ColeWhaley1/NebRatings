@@ -31,6 +31,7 @@ struct TMDBMovie: Codable {
     let voteAverage: Double?
     let voteCount: Int?
     let popularity: Double?
+    let genreIds: [Int]?
     
     enum CodingKeys: String, CodingKey {
         case id, title, overview, popularity
@@ -39,6 +40,7 @@ struct TMDBMovie: Codable {
         case backdropPath = "backdrop_path"
         case voteAverage = "vote_average"
         case voteCount = "vote_count"
+        case genreIds = "genre_ids"
     }
 }
 
@@ -66,6 +68,7 @@ struct TMDBTV: Codable {
     let voteAverage: Double?
     let voteCount: Int?
     let popularity: Double?
+    let genreIds: [Int]?
     
     enum CodingKeys: String, CodingKey {
         case id, name, overview, popularity
@@ -74,7 +77,14 @@ struct TMDBTV: Codable {
         case backdropPath = "backdrop_path"
         case voteAverage = "vote_average"
         case voteCount = "vote_count"
+        case genreIds = "genre_ids"
     }
+}
+
+// MARK: - Genre Model
+struct TMDBGenre: Codable {
+    let id: Int
+    let name: String
 }
 
 // MARK: - Movie Details Response
@@ -88,9 +98,10 @@ struct MovieDetailsResponse: Codable {
     let backdropPath: String?
     let voteAverage: Double?
     let voteCount: Int?
+    let genres: [TMDBGenre]?
     
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, tagline
+        case id, title, overview, tagline, genres
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -110,9 +121,10 @@ struct TVDetailsResponse: Codable {
     let backdropPath: String?
     let voteAverage: Double?
     let voteCount: Int?
+    let genres: [TMDBGenre]?
     
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, tagline
+        case id, name, overview, tagline, genres
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"

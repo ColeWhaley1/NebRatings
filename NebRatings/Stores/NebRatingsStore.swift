@@ -15,9 +15,11 @@ final class NebRatingsStore {
     private(set) var currentUser: UserProfile?
     private(set) var userReviews: [Review] = []
     private(set) var isAuthenticated = false
+    private(set) var recommendations: [Show] = []
     
     var isSearchingShows = false
     private(set) var isQueryingReviews = false
+    private(set) var isLoadingRecommendations = false
 
     private let catalogService: CatalogService
     private let reviewService: ReviewService
@@ -95,6 +97,26 @@ final class NebRatingsStore {
         }
     }
     
+    func loadTrendingShows(category: Show.Category? = nil) async {
+        isSearchingShows = true
+        defer { isSearchingShows = false }
+        
+        do {
+            let results = try await catalogService.fetchTrendingShows(category: category)
+            shows = results
+            
+            // Update cache
+            for show in results {
+                showCache[show.id] = show
+            }
+        } catch {
+            // Handle error - could show error state
+            print("Error loading trending shows: \(error)")
+            // Show empty results on error rather than crashing
+            shows = []
+        }
+    }
+    
     func queryReviews(searchText: String? = nil,
                     category: Show.Category? = nil,
                     minimumRating: Double? = nil,
@@ -161,6 +183,21 @@ final class NebRatingsStore {
         
         return nil
     }
+    
+    func fetchShowDetailsByTMDBID(tmdbID: Int, category: Show.Category) async -> Show? {
+        // Fetch from API using TMDB ID
+        do {
+            if let show = try await catalogService.fetchShowDetails(id: String(tmdbID), category: category) {
+                // Cache by the show's UUID if it exists
+                showCache[show.id] = show
+                return show
+            }
+        } catch {
+            print("Error fetching show details by TMDB ID: \(error)")
+        }
+        
+        return nil
+    }
 
     func reviews(for show: Show) -> [Review] {
         reviews.filter { $0.showID == show.id }
@@ -176,6 +213,31 @@ final class NebRatingsStore {
         return shows.first(where: { $0.id == review.showID })
     }
 
+    func loadRecommendations(for show: Show) async {
+        guard let tmdbID = show.tmdbID else {
+            recommendations = []
+            return
+        }
+        
+        isLoadingRecommendations = true
+        defer { isLoadingRecommendations = false }
+        
+        do {
+            let results = try await catalogService.fetchRecommendations(tmdbID: tmdbID, category: show.category)
+            recommendations = results
+            
+            // Update cache
+            for show in results {
+                showCache[show.id] = show
+            }
+        } catch {
+            // Handle error - could show error state
+            print("Error loading recommendations: \(error)")
+            // Show empty results on error rather than crashing
+            recommendations = []
+        }
+    }
+    
     func addReview(author: String, comment: String, rating: Double, to show: Show) {
         let newReview = Review(showID: show.id, showTitle: show.title, author: author, comment: comment, nebRating: rating)
         

@@ -10,6 +10,8 @@ import Foundation
 protocol CatalogService {
     func searchShows(query: String, category: Show.Category?) async throws -> [Show]
     func fetchShowDetails(id: String, category: Show.Category) async throws -> Show?
+    func fetchTrendingShows(category: Show.Category?) async throws -> [Show]
+    func fetchRecommendations(tmdbID: Int, category: Show.Category) async throws -> [Show]
 }
 
 struct TMDBService: CatalogService {
@@ -242,37 +244,44 @@ struct TMDBService: CatalogService {
     private func convertMovieToShow(_ movie: TMDBMovie) -> Show {
         let year = extractYear(from: movie.releaseDate)
         return Show(
-            id: UUID(), // We'll use TMDB ID mapping in the future
+            id: UUID(),
             title: movie.title,
             category: .movie,
             year: year,
             synopsis: movie.overview.isEmpty ? "No description available" : movie.overview,
             tagline: movie.overview.isEmpty ? "" : String(movie.overview.prefix(100)),
-            streamingService: "TMDB",
+            streamingService: "Various",
             posterURL: posterURL(from: movie.posterPath),
             backdropURL: backdropURL(from: movie.backdropPath),
-            popularity: movie.popularity ?? 0.0
+            popularity: movie.popularity ?? 0.0,
+            tmdbID: movie.id,
+            genres: [], // Search results don't include genre names, only IDs
+            rating: movie.voteAverage
         )
     }
     
     private func convertTVToShow(_ tv: TMDBTV) -> Show {
         let year = extractYear(from: tv.firstAirDate)
         return Show(
-            id: UUID(), // We'll use TMDB ID mapping in the future
+            id: UUID(),
             title: tv.name,
             category: .series,
             year: year,
             synopsis: tv.overview.isEmpty ? "No description available" : tv.overview,
             tagline: tv.overview.isEmpty ? "" : String(tv.overview.prefix(100)),
-            streamingService: "TMDB",
+            streamingService: "Various",
             posterURL: posterURL(from: tv.posterPath),
             backdropURL: backdropURL(from: tv.backdropPath),
-            popularity: tv.popularity ?? 0.0
+            popularity: tv.popularity ?? 0.0,
+            tmdbID: tv.id,
+            genres: [], // Search results don't include genre names, only IDs
+            rating: tv.voteAverage
         )
     }
     
     private func convertMovieDetailsToShow(_ details: MovieDetailsResponse) -> Show {
         let year = extractYear(from: details.releaseDate)
+        let genreNames = details.genres?.map { $0.name } ?? []
         return Show(
             id: UUID(),
             title: details.title,
@@ -280,15 +289,19 @@ struct TMDBService: CatalogService {
             year: year,
             synopsis: details.overview.isEmpty ? "No description available" : details.overview,
             tagline: details.tagline ?? String(details.overview.prefix(100)),
-            streamingService: "TMDB",
+            streamingService: "Various",
             posterURL: posterURL(from: details.posterPath),
             backdropURL: backdropURL(from: details.backdropPath),
-            popularity: 0.0 // Details endpoint doesn't include popularity
+            popularity: 0.0, // Details endpoint doesn't include popularity
+            tmdbID: details.id,
+            genres: genreNames,
+            rating: details.voteAverage
         )
     }
     
     private func convertTVDetailsToShow(_ details: TVDetailsResponse) -> Show {
         let year = extractYear(from: details.firstAirDate)
+        let genreNames = details.genres?.map { $0.name } ?? []
         return Show(
             id: UUID(),
             title: details.name,
@@ -296,11 +309,223 @@ struct TMDBService: CatalogService {
             year: year,
             synopsis: details.overview.isEmpty ? "No description available" : details.overview,
             tagline: details.tagline ?? String(details.overview.prefix(100)),
-            streamingService: "TMDB",
+            streamingService: "Various",
             posterURL: posterURL(from: details.posterPath),
             backdropURL: backdropURL(from: details.backdropPath),
-            popularity: 0.0 // Details endpoint doesn't include popularity
+            popularity: 0.0, // Details endpoint doesn't include popularity
+            tmdbID: details.id,
+            genres: genreNames,
+            rating: details.voteAverage
         )
+    }
+    
+    func fetchTrendingShows(category: Show.Category?) async throws -> [Show] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        
+        var shows: [Show] = []
+        
+        // Fetch trending movies if category is nil or movie
+        if category == nil || category == .movie {
+            do {
+                let movies = try await fetchTrendingMovies()
+                shows.append(contentsOf: movies)
+            } catch {
+                print("Error fetching trending movies: \(error)")
+                // Continue to try TV shows even if movies fail
+            }
+        }
+        
+        // Fetch trending TV shows if category is nil or series
+        if category == nil || category == .series {
+            do {
+                let tvShows = try await fetchTrendingTVShows()
+                shows.append(contentsOf: tvShows)
+            } catch {
+                print("Error fetching trending TV shows: \(error)")
+                // If we're fetching for a specific category and it fails, re-throw
+                if category == .series {
+                    throw error
+                }
+            }
+        }
+        
+        // Sort by popularity (descending) when showing "All" categories
+        if category == nil {
+            shows.sort { $0.popularity > $1.popularity }
+        }
+        
+        return shows
+    }
+    
+    private func fetchTrendingMovies() async throws -> [Show] {
+        guard var urlComponents = URLComponents(string: "\(baseURL)/trending/movie/day") else {
+            throw TMDBError.invalidURL
+        }
+        
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TMDBError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("TMDB API Error: Status code \(httpResponse.statusCode)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response: \(errorString)")
+            }
+            throw TMDBError.invalidResponse
+        }
+        
+        do {
+            let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
+            return movieResponse.results.map { convertMovieToShow($0) }
+        } catch {
+            print("Decoding error: \(error)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response data: \(errorString.prefix(500))")
+            }
+            throw TMDBError.decodingError
+        }
+    }
+    
+    private func fetchTrendingTVShows() async throws -> [Show] {
+        guard var urlComponents = URLComponents(string: "\(baseURL)/trending/tv/day") else {
+            throw TMDBError.invalidURL
+        }
+        
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TMDBError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("TMDB API Error: Status code \(httpResponse.statusCode)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response: \(errorString)")
+            }
+            throw TMDBError.invalidResponse
+        }
+        
+        do {
+            let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
+            return tvResponse.results.map { convertTVToShow($0) }
+        } catch {
+            print("Decoding error: \(error)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response data: \(errorString.prefix(500))")
+            }
+            throw TMDBError.decodingError
+        }
+    }
+    
+    func fetchRecommendations(tmdbID: Int, category: Show.Category) async throws -> [Show] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        
+        switch category {
+        case .movie:
+            return try await fetchMovieRecommendations(tmdbID: tmdbID)
+        case .series:
+            return try await fetchTVRecommendations(tmdbID: tmdbID)
+        }
+    }
+    
+    private func fetchMovieRecommendations(tmdbID: Int) async throws -> [Show] {
+        guard var urlComponents = URLComponents(string: "\(baseURL)/movie/\(tmdbID)/recommendations") else {
+            throw TMDBError.invalidURL
+        }
+        
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TMDBError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("TMDB API Error: Status code \(httpResponse.statusCode)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response: \(errorString)")
+            }
+            throw TMDBError.invalidResponse
+        }
+        
+        do {
+            let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
+            return movieResponse.results.map { convertMovieToShow($0) }
+        } catch {
+            print("Decoding error: \(error)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response data: \(errorString.prefix(500))")
+            }
+            throw TMDBError.decodingError
+        }
+    }
+    
+    private func fetchTVRecommendations(tmdbID: Int) async throws -> [Show] {
+        guard var urlComponents = URLComponents(string: "\(baseURL)/tv/\(tmdbID)/recommendations") else {
+            throw TMDBError.invalidURL
+        }
+        
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TMDBError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            print("TMDB API Error: Status code \(httpResponse.statusCode)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response: \(errorString)")
+            }
+            throw TMDBError.invalidResponse
+        }
+        
+        do {
+            let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
+            return tvResponse.results.map { convertTVToShow($0) }
+        } catch {
+            print("Decoding error: \(error)")
+            if let errorString = String(data: data, encoding: .utf8) {
+                print("Response data: \(errorString.prefix(500))")
+            }
+            throw TMDBError.decodingError
+        }
     }
     
     private func extractYear(from dateString: String?) -> Int {

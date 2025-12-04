@@ -33,6 +33,9 @@ struct Show: Identifiable, Hashable {
     let posterURL: String?
     let backdropURL: String?
     let popularity: Double
+    let tmdbID: Int?
+    let genres: [String]
+    let rating: Double?
     var reviews: [Review]
 
     init(id: UUID = UUID(),
@@ -45,6 +48,9 @@ struct Show: Identifiable, Hashable {
          posterURL: String? = nil,
          backdropURL: String? = nil,
          popularity: Double = 0.0,
+         tmdbID: Int? = nil,
+         genres: [String] = [],
+         rating: Double? = nil,
          reviews: [Review] = []) {
         self.id = id
         self.title = title
@@ -56,6 +62,9 @@ struct Show: Identifiable, Hashable {
         self.posterURL = posterURL
         self.backdropURL = backdropURL
         self.popularity = popularity
+        self.tmdbID = tmdbID
+        self.genres = genres
+        self.rating = rating
         self.reviews = reviews
     }
 
@@ -121,10 +130,13 @@ extension Show {
             year: 2010,
             synopsis: "Cobb, a skilled thief who commits corporate espionage by infiltrating the subconscious of his targets is offered a chance to regain his old life as payment for a task considered to be impossible: \"inception\", the implantation of another person's idea into a target's subconscious.",
             tagline: "Your mind is the scene of the crime.",
-            streamingService: "TMDB",
+            streamingService: "Netflix",
             posterURL: "https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/s3TBrRGB1iav7gFOCNx3H31MoES.jpg",
-            popularity: 24.631
+            popularity: 24.631,
+            tmdbID: 27205,
+            genres: ["Action", "Sci-Fi", "Thriller"],
+            rating: 8.8
         )
         
         let breakingBad = Show(
@@ -133,10 +145,13 @@ extension Show {
             year: 2008,
             synopsis: "When Walter White, a New Mexico chemistry teacher, is diagnosed with Stage III cancer and given a prognosis of only two years left to live, he becomes filled with a sense of fearlessness and an unrelenting desire to secure his family's financial future at any cost as he enters the dangerous world of drugs and crime.",
             tagline: "All bad things must come to an end.",
-            streamingService: "TMDB",
+            streamingService: "Netflix",
             posterURL: "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
-            popularity: 18.234
+            popularity: 18.234,
+            tmdbID: 1396,
+            genres: ["Crime", "Drama", "Thriller"],
+            rating: 9.5
         )
         
         let theDarkKnight = Show(
@@ -145,10 +160,13 @@ extension Show {
             year: 2008,
             synopsis: "Batman raises the stakes in his war on crime. With the help of Lt. Jim Gordon and District Attorney Harvey Dent, Batman sets out to dismantle the remaining criminal organizations that plague the streets. The partnership proves to be effective, but they soon find themselves prey to a reign of chaos unleashed by a rising criminal mastermind known to the terrified citizens of Gotham as the Joker.",
             tagline: "Why So Serious?",
-            streamingService: "TMDB",
+            streamingService: "HBO Max",
             posterURL: "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/hqkIcbrOHL86UncnHIsHVcVmzue.jpg",
-            popularity: 22.456
+            popularity: 22.456,
+            tmdbID: 155,
+            genres: ["Action", "Crime", "Drama"],
+            rating: 9.0
         )
         
         let gameOfThrones = Show(
@@ -157,10 +175,13 @@ extension Show {
             year: 2011,
             synopsis: "Seven noble families fight for control of the mythical land of Westeros. Friction between the houses leads to full-scale war. All while a very ancient evil awakens in the farthest north. Amidst the war, a neglected military order of misfits, the Night's Watch, is all that stands between the realms of men and icy horrors beyond.",
             tagline: "Winter is Coming.",
-            streamingService: "TMDB",
+            streamingService: "HBO Max",
             posterURL: "https://image.tmdb.org/t/p/w500/u3bZgnGQ9T01sWNhyveQz0wH0Hl.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/2OMB0ynKlyIenMJWI2Dy9IWT4cM.jpg",
-            popularity: 19.789
+            popularity: 19.789,
+            tmdbID: 1399,
+            genres: ["Action", "Adventure", "Drama", "Fantasy"],
+            rating: 8.5
         )
         
         let noPosterShow = Show(
@@ -169,10 +190,13 @@ extension Show {
             year: 1999,
             synopsis: "Set in the 22nd century, The Matrix tells the story of a computer hacker who learns from mysterious rebels about the true nature of his reality and his role in the war against its controllers.",
             tagline: "Welcome to the Real World.",
-            streamingService: "TMDB",
+            streamingService: "HBO Max",
             posterURL: nil,
             backdropURL: nil,
-            popularity: 15.123
+            popularity: 15.123,
+            tmdbID: 603,
+            genres: ["Action", "Sci-Fi"],
+            rating: 8.7
         )
         
         return [inception, breakingBad, theDarkKnight, gameOfThrones, noPosterShow]

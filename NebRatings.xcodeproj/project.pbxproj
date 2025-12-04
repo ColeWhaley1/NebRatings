@@ -32,14 +32,14 @@
 		DD040EC52EDE8A42009EC6F6 /* FirebaseStorage in Frameworks */ = {isa = PBXBuildFile; productRef = DD040EC42EDE8A42009EC6F6 /* FirebaseStorage */; };
 		DD040EC72EDE8A42009EC6F6 /* FirebaseStorageCombine-Community in Frameworks */ = {isa = PBXBuildFile; productRef = DD040EC62EDE8A42009EC6F6 /* FirebaseStorageCombine-Community */; };
 		DD308D232EDBDEC800FC8D49 /* Config.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = DD308D222EDBDEC800FC8D49 /* Config.xcconfig */; };
-		DD9127CF2EDFC8E1006FCB2B /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = DD9127CE2EDFC8E1006FCB2B /* GoogleService-Info.plist */; };
+		DD757CD32EDFD695004A97CA /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = DD757CD22EDFD695004A97CA /* GoogleService-Info.plist */; };
 		DD9128CB2EDFCBCB006FCB2B /* .gitignore in Resources */ = {isa = PBXBuildFile; fileRef = DD9128CA2EDFCBCB006FCB2B /* .gitignore */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		DD308CEC2EDA7F7F00FC8D49 /* NebRatings.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NebRatings.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD308D222EDBDEC800FC8D49 /* Config.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Config.xcconfig; sourceTree = "<group>"; };
-		DD9127CE2EDFC8E1006FCB2B /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		DD757CD22EDFD695004A97CA /* GoogleService-Info.plist */ = {isa = PBXFileReference; explicitFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		DD9128CA2EDFCBCB006FCB2B /* .gitignore */ = {isa = PBXFileReference; lastKnownFileType = text; path = .gitignore; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -106,7 +106,7 @@
 				DD308CEE2EDA7F7F00FC8D49 /* NebRatings */,
 				DD308CED2EDA7F7F00FC8D49 /* Products */,
 				DD308D222EDBDEC800FC8D49 /* Config.xcconfig */,
-				DD9127CE2EDFC8E1006FCB2B /* GoogleService-Info.plist */,
+				DD757CD22EDFD695004A97CA /* GoogleService-Info.plist */,
 			);
 			sourceTree = "<group>";
 		};
@@ -209,8 +209,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DD757CD32EDFD695004A97CA /* GoogleService-Info.plist in Resources */,
 				DD9128CB2EDFCBCB006FCB2B /* .gitignore in Resources */,
-				DD9127CF2EDFC8E1006FCB2B /* GoogleService-Info.plist in Resources */,
 				DD308D232EDBDEC800FC8D49 /* Config.xcconfig in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

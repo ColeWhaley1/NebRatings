@@ -41,11 +41,22 @@ struct SearchShowsView: View {
             .navigationTitle("Discover")
             .searchable(text: $searchText, prompt: "Search movies or TV shows")
             .onChange(of: searchText) { oldValue, newValue in
-                performSearch()
+                if newValue.isEmpty {
+                    loadTrending()
+                } else {
+                    performSearch()
+                }
             }
             .onChange(of: selectedCategory) { oldValue, newValue in
-                if !searchText.isEmpty {
+                if searchText.isEmpty {
+                    loadTrending()
+                } else {
                     performSearch()
+                }
+            }
+            .onAppear {
+                if searchText.isEmpty {
+                    loadTrending()
                 }
             }
             .navigationDestination(for: Show.self) { show in
@@ -76,6 +87,15 @@ struct SearchShowsView: View {
             
             guard !Task.isCancelled else { return }
             await store.searchShows(query: searchText, category: selectedCategory)
+        }
+    }
+    
+    private func loadTrending() {
+        // Cancel any pending search task
+        searchTask?.cancel()
+        
+        Task {
+            await store.loadTrendingShows(category: selectedCategory)
         }
     }
 }

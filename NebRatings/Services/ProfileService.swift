@@ -44,7 +44,6 @@ struct FirebaseProfileService: ProfileService {
               let name = data["name"] as? String else {
             throw NSError(domain: "ProfileService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Profile not found"])
         }
-        
         return UserProfile(id: userID, name: name)
     }
 
