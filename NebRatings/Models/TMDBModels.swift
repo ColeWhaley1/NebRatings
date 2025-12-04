@@ -87,6 +87,34 @@ struct TMDBGenre: Codable {
     let name: String
 }
 
+// MARK: - Watch Provider Models
+struct WatchProvider: Codable {
+    let displayPriority: Int
+    let logoPath: String?
+    let providerId: Int
+    let providerName: String
+    
+    enum CodingKeys: String, CodingKey {
+        case displayPriority = "display_priority"
+        case logoPath = "logo_path"
+        case providerId = "provider_id"
+        case providerName = "provider_name"
+    }
+}
+
+struct WatchProvidersResponse: Codable {
+    let results: [String: CountryWatchProviders]?
+}
+
+struct CountryWatchProviders: Codable {
+    let link: String?
+    let flatrate: [WatchProvider]?
+    let buy: [WatchProvider]?
+    let rent: [WatchProvider]?
+    let free: [WatchProvider]?
+    let ads: [WatchProvider]?
+}
+
 // MARK: - Movie Details Response
 struct MovieDetailsResponse: Codable {
     let id: Int

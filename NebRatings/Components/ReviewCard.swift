@@ -11,6 +11,7 @@ struct ReviewCard: View {
     let review: Review
     var showTitle: String?
     var showCategory: Show.Category?
+    var isOwnReview: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -32,9 +33,20 @@ struct ReviewCard: View {
             }
 
             HStack {
-                Text(review.author)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
+                HStack(spacing: 6) {
+                    Text(review.author)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    if isOwnReview {
+                        Text("(You)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.purple.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.purple)
+                    }
+                }
                 Spacer()
                 NebRatingView(rating: review.nebRating)
             }

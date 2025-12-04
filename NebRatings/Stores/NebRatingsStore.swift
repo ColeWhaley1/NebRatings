@@ -134,7 +134,22 @@ final class NebRatingsStore {
         
         do {
             let results = try await reviewService.queryReviews(query)
-            reviews = results
+            // Merge results with existing reviews to preserve optimistic updates
+            // Use a dictionary to efficiently merge and update reviews
+            var reviewsDict: [UUID: Review] = [:]
+            
+            // First, add all existing reviews (preserves local optimistic updates)
+            for review in reviews {
+                reviewsDict[review.id] = review
+            }
+            
+            // Then, update/add reviews from Firestore (Firestore data takes precedence for existing reviews)
+            for result in results {
+                reviewsDict[result.id] = result
+            }
+            
+            // Convert back to array, sorted by timestamp (newest first)
+            reviews = Array(reviewsDict.values).sorted { $0.timestamp > $1.timestamp }
         } catch {
             // Handle error
             print("Error querying reviews: \(error)")
@@ -242,19 +257,33 @@ final class NebRatingsStore {
         let newReview = Review(showID: show.id, showTitle: show.title, author: author, comment: comment, nebRating: rating)
         
         // Add to local state immediately for optimistic UI
-        reviews.insert(newReview, at: 0)
+        // This ensures the review appears in the UI right away
+        if !reviews.contains(where: { $0.id == newReview.id }) {
+            reviews.insert(newReview, at: 0)
+        }
         
         // Update user reviews if it's the current user
         if let user = currentUser, author == user.name {
-            userReviews.insert(newReview, at: 0)
+            if !userReviews.contains(where: { $0.id == newReview.id }) {
+                userReviews.insert(newReview, at: 0)
+            }
         }
 
+        // Submit to Firestore in background
         Task {
             do {
                 try await reviewService.submit(review: newReview)
+                // Refresh reviews for this show to ensure consistency with Firestore
+                // This will merge the Firestore version with local reviews
+                await queryReviews(showID: show.id)
             } catch {
-                // Handle error - could revert optimistic update
+                // Handle error - revert optimistic update
                 print("Error submitting review: \(error)")
+                // Remove the optimistic update on error
+                reviews.removeAll(where: { $0.id == newReview.id })
+                if let user = currentUser, author == user.name {
+                    userReviews.removeAll(where: { $0.id == newReview.id })
+                }
             }
         }
     }

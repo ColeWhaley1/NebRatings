@@ -200,7 +200,9 @@ struct TMDBService: CatalogService {
         
         do {
             let movieDetails = try JSONDecoder().decode(MovieDetailsResponse.self, from: data)
-            return convertMovieDetailsToShow(movieDetails)
+            // Fetch watch providers
+            let watchProviders = try? await fetchWatchProviders(tmdbID: movieDetails.id, category: .movie)
+            return convertMovieDetailsToShow(movieDetails, watchProviders: watchProviders ?? [])
         } catch {
             print("Decoding error: \(error)")
             throw TMDBError.decodingError
@@ -232,10 +234,131 @@ struct TMDBService: CatalogService {
         
         do {
             let tvDetails = try JSONDecoder().decode(TVDetailsResponse.self, from: data)
-            return convertTVDetailsToShow(tvDetails)
+            // Fetch watch providers
+            let watchProviders = try? await fetchWatchProviders(tmdbID: tvDetails.id, category: .series)
+            return convertTVDetailsToShow(tvDetails, watchProviders: watchProviders ?? [])
         } catch {
             print("Decoding error: \(error)")
             throw TMDBError.decodingError
+        }
+    }
+    
+    private func providerLogoURL(from path: String?) -> String? {
+        guard let path = path, !path.isEmpty else { return nil }
+        return "\(imageBaseURL)/w45\(path)"
+    }
+    
+    private func cleanProviderName(_ name: String) -> String {
+        // Remove subscription tier information and channel/distribution suffixes
+        // Preserve base service names like "Disney Plus", "Paramount Plus"
+        // Examples: 
+        //   "Netflix Standard with Ads" -> "Netflix"
+        //   "Paramount Plus Standard" -> "Paramount Plus"
+        //   "Paramount Plus Apple TV Channel" -> "Paramount Plus"
+        var cleaned = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // First, remove channel/distribution method suffixes (order matters - more specific first)
+        let channelPatterns = [
+            " Apple TV Channel",
+            " Channel",
+            " via Apple TV Channel",
+            " via Prime Video",
+            " via Roku Channel",
+            " via YouTube",
+            " via Google Play"
+        ]
+        
+        for pattern in channelPatterns {
+            if cleaned.hasSuffix(pattern) {
+                cleaned = String(cleaned.dropLast(pattern.count))
+                break
+            }
+        }
+        
+        // Then remove subscription tier suffixes (order matters - more specific first)
+        let tierPatterns = [
+            " Standard with Ads",
+            " Premium with Ads",
+            " Basic with Ads",
+            " Standard",
+            " Premium",
+            " Basic",
+            " with Ads",
+            " (Ads)",
+            " (No Ads)",
+            " (4K)",
+            " (HD)",
+            " (SD)",
+            " (UHD)",
+            " (Free)",
+            " (Subscription)",
+            " (Rent)",
+            " (Buy)"
+        ]
+        
+        for pattern in tierPatterns {
+            if cleaned.hasSuffix(pattern) {
+                cleaned = String(cleaned.dropLast(pattern.count))
+                break // Only remove one pattern
+            }
+        }
+        
+        // Trim again after removing patterns
+        return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    private func fetchWatchProviders(tmdbID: Int, category: Show.Category) async throws -> [WatchProviderInfo] {
+        let endpoint = category == .movie ? "movie" : "tv"
+        guard var urlComponents = URLComponents(string: "\(baseURL)/\(endpoint)/\(tmdbID)/watch/providers") else {
+            throw TMDBError.invalidURL
+        }
+        
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+        
+        let (data, response) = try await URLSession.shared.data(from: url)
+        
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw TMDBError.invalidResponse
+        }
+        
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw TMDBError.invalidResponse
+        }
+        
+        do {
+            let providersResponse = try JSONDecoder().decode(WatchProvidersResponse.self, from: data)
+            // Get US providers (or first available country)
+            var providers: [WatchProviderInfo] = []
+            var seenNames = Set<String>()
+            
+            // Try US first, then any available country
+            let countryProviders = providersResponse.results?["US"] ?? providersResponse.results?.values.first
+            
+            if let flatrate = countryProviders?.flatrate {
+                for provider in flatrate {
+                    let cleanedName = cleanProviderName(provider.providerName)
+                    // Only add if we haven't seen this base name before (deduplicate)
+                    if !seenNames.contains(cleanedName) {
+                        seenNames.insert(cleanedName)
+                        providers.append(WatchProviderInfo(
+                            id: provider.providerId,
+                            name: cleanedName,
+                            logoURL: providerLogoURL(from: provider.logoPath)
+                        ))
+                    }
+                }
+            }
+            
+            return providers
+        } catch {
+            print("Error decoding watch providers: \(error)")
+            return []
         }
     }
     
@@ -256,7 +379,8 @@ struct TMDBService: CatalogService {
             popularity: movie.popularity ?? 0.0,
             tmdbID: movie.id,
             genres: [], // Search results don't include genre names, only IDs
-            rating: movie.voteAverage
+            rating: movie.voteAverage,
+            watchProviders: [] // Search results don't include watch providers
         )
     }
     
@@ -275,13 +399,15 @@ struct TMDBService: CatalogService {
             popularity: tv.popularity ?? 0.0,
             tmdbID: tv.id,
             genres: [], // Search results don't include genre names, only IDs
-            rating: tv.voteAverage
+            rating: tv.voteAverage,
+            watchProviders: [] // Search results don't include watch providers
         )
     }
     
-    private func convertMovieDetailsToShow(_ details: MovieDetailsResponse) -> Show {
+    private func convertMovieDetailsToShow(_ details: MovieDetailsResponse, watchProviders: [WatchProviderInfo] = []) -> Show {
         let year = extractYear(from: details.releaseDate)
         let genreNames = details.genres?.map { $0.name } ?? []
+        let primaryProvider = watchProviders.first?.name ?? "Various"
         return Show(
             id: UUID(),
             title: details.title,
@@ -289,19 +415,21 @@ struct TMDBService: CatalogService {
             year: year,
             synopsis: details.overview.isEmpty ? "No description available" : details.overview,
             tagline: details.tagline ?? String(details.overview.prefix(100)),
-            streamingService: "Various",
+            streamingService: primaryProvider,
             posterURL: posterURL(from: details.posterPath),
             backdropURL: backdropURL(from: details.backdropPath),
             popularity: 0.0, // Details endpoint doesn't include popularity
             tmdbID: details.id,
             genres: genreNames,
-            rating: details.voteAverage
+            rating: details.voteAverage,
+            watchProviders: watchProviders
         )
     }
     
-    private func convertTVDetailsToShow(_ details: TVDetailsResponse) -> Show {
+    private func convertTVDetailsToShow(_ details: TVDetailsResponse, watchProviders: [WatchProviderInfo] = []) -> Show {
         let year = extractYear(from: details.firstAirDate)
         let genreNames = details.genres?.map { $0.name } ?? []
+        let primaryProvider = watchProviders.first?.name ?? "Various"
         return Show(
             id: UUID(),
             title: details.name,
@@ -309,13 +437,14 @@ struct TMDBService: CatalogService {
             year: year,
             synopsis: details.overview.isEmpty ? "No description available" : details.overview,
             tagline: details.tagline ?? String(details.overview.prefix(100)),
-            streamingService: "Various",
+            streamingService: primaryProvider,
             posterURL: posterURL(from: details.posterPath),
             backdropURL: backdropURL(from: details.backdropPath),
             popularity: 0.0, // Details endpoint doesn't include popularity
             tmdbID: details.id,
             genres: genreNames,
-            rating: details.voteAverage
+            rating: details.voteAverage,
+            watchProviders: watchProviders
         )
     }
     

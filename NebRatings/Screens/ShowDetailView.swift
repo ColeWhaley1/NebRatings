@@ -9,15 +9,13 @@ import SwiftUI
 
 struct ShowDetailView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
+    @Environment(\.dismiss) private var dismiss
     let show: Show
 
     @State private var newComment = ""
     @State private var newNebs: Double = 3
     @State private var detailedShow: Show?
-    
-    init(show: Show) {
-        self.show = show
-    }
+    @State private var isProvidersExpanded = false
     
     private var displayShow: Show {
         detailedShow ?? show
@@ -25,6 +23,15 @@ struct ShowDetailView: View {
 
     private var reviews: [Review] {
         store.reviews(for: show)
+    }
+    
+    private var sortedReviews: [Review] {
+        guard let currentUserName = store.currentUser?.name else {
+            return reviews
+        }
+        let userReviews = reviews.filter { $0.author == currentUserName }
+        let otherReviews = reviews.filter { $0.author != currentUserName }
+        return userReviews + otherReviews
     }
     
     private var yearFormatted: String {
@@ -109,7 +116,7 @@ struct ShowDetailView: View {
                 
                 // Basic info column
                 VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 6) {
                             Image(systemName: "calendar")
                                 .foregroundStyle(.secondary)
@@ -118,7 +125,56 @@ struct ShowDetailView: View {
                                 .foregroundStyle(.primary)
                                 .font(.subheadline)
                         }
-                        if !displayShow.streamingService.isEmpty && displayShow.streamingService != "Various" {
+                        
+                        if !displayShow.watchProviders.isEmpty {
+                            if displayShow.watchProviders.count == 1, let provider = displayShow.watchProviders.first {
+                                // Single provider - display directly
+                                HStack(spacing: 6) {
+                                    if let logoURL = provider.logoURL {
+                                        AsyncImageView(urlString: logoURL)
+                                            .frame(width: 24, height: 24)
+                                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    }
+                                    Text(provider.name)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+                                }
+                            } else {
+                                // Multiple providers - use dropdown
+                                DisclosureGroup(isExpanded: $isProvidersExpanded) {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(displayShow.watchProviders) { provider in
+                                            HStack(spacing: 6) {
+                                                if let logoURL = provider.logoURL {
+                                                    AsyncImageView(urlString: logoURL)
+                                                        .frame(width: 24, height: 24)
+                                                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                                                }
+                                                Text(provider.name)
+                                                    .font(.subheadline)
+                                                    .foregroundStyle(.primary)
+                                            }
+                                        }
+                                    }
+                                    .padding(.top, 4)
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "play.tv")
+                                            .foregroundStyle(.secondary)
+                                            .font(.subheadline)
+                                        Text("Where to watch")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.primary)
+                                        Text("(\(displayShow.watchProviders.count))")
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .transaction { transaction in
+                                    transaction.animation = nil
+                                }
+                            }
+                        } else if !displayShow.streamingService.isEmpty && displayShow.streamingService != "Various" {
                             HStack(spacing: 6) {
                                 Image(systemName: "play.tv")
                                     .foregroundStyle(.secondary)
@@ -128,6 +184,7 @@ struct ShowDetailView: View {
                                     .font(.subheadline)
                             }
                         }
+                        
                         if let rating = displayShow.rating, rating > 0 {
                             HStack(spacing: 6) {
                                 Image(systemName: "star.fill")
@@ -178,12 +235,19 @@ struct ShowDetailView: View {
                 }
             }
             
-            // TMDB source attribution at bottom
+            // Attribution at bottom
             if displayShow.tmdbID != nil {
-                Text("Data provided by TMDB")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 4)
+                VStack(alignment: .leading, spacing: 2) {
+                    if !displayShow.watchProviders.isEmpty {
+                        Text("Streaming data provided by JustWatch")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                    Text("Data provided by TMDB")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.top, 4)
             }
         }
     }
@@ -243,8 +307,9 @@ struct ShowDetailView: View {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
             } else {
                 VStack(spacing: 16) {
-                    ForEach(reviews) { review in
-                        ReviewCard(review: review)
+                    ForEach(sortedReviews) { review in
+                        let isOwnReview = store.currentUser?.name == review.author
+                        ReviewCard(review: review, isOwnReview: isOwnReview)
                     }
                 }
             }
@@ -282,6 +347,7 @@ struct ShowDetailView: View {
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
+            .tint(.purple)
             .disabled(!formIsValid)
         }
     }
@@ -301,6 +367,7 @@ struct ShowDetailView: View {
         newNebs = 3
     }
 }
+
 
 #Preview {
     let show = Show.previewData[0]

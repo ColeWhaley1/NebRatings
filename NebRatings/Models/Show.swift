@@ -8,6 +8,12 @@
 import Foundation
 import SwiftUI
 
+struct WatchProviderInfo: Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let logoURL: String?
+}
+
 struct Show: Identifiable, Hashable {
     enum Category: String, CaseIterable, Identifiable {
         case movie = "Movie"
@@ -36,6 +42,7 @@ struct Show: Identifiable, Hashable {
     let tmdbID: Int?
     let genres: [String]
     let rating: Double?
+    let watchProviders: [WatchProviderInfo]
     var reviews: [Review]
 
     init(id: UUID = UUID(),
@@ -51,6 +58,7 @@ struct Show: Identifiable, Hashable {
          tmdbID: Int? = nil,
          genres: [String] = [],
          rating: Double? = nil,
+         watchProviders: [WatchProviderInfo] = [],
          reviews: [Review] = []) {
         self.id = id
         self.title = title
@@ -65,6 +73,7 @@ struct Show: Identifiable, Hashable {
         self.tmdbID = tmdbID
         self.genres = genres
         self.rating = rating
+        self.watchProviders = watchProviders
         self.reviews = reviews
     }
 
@@ -136,7 +145,11 @@ extension Show {
             popularity: 24.631,
             tmdbID: 27205,
             genres: ["Action", "Sci-Fi", "Thriller"],
-            rating: 8.8
+            rating: 8.8,
+            watchProviders: [
+                WatchProviderInfo(id: 8, name: "Netflix", logoURL: "https://image.tmdb.org/t/p/w45/t2yyOv40HZeVlLjYsCsPHnWLk4W.jpg"),
+                WatchProviderInfo(id: 384, name: "HBO Max", logoURL: "https://image.tmdb.org/t/p/w45/4KAy34EHvRM25Ih8wb82AuGU7zJ.jpg")
+            ]
         )
         
         let breakingBad = Show(
@@ -151,7 +164,11 @@ extension Show {
             popularity: 18.234,
             tmdbID: 1396,
             genres: ["Crime", "Drama", "Thriller"],
-            rating: 9.5
+            rating: 9.5,
+            watchProviders: [
+                WatchProviderInfo(id: 8, name: "Netflix", logoURL: "https://image.tmdb.org/t/p/w45/t2yyOv40HZeVlLjYsCsPHnWLk4W.jpg"),
+                WatchProviderInfo(id: 528, name: "AMC+", logoURL: "https://image.tmdb.org/t/p/w45/4KAy34EHvRM25Ih8wb82AuGU7zJ.jpg")
+            ]
         )
         
         let theDarkKnight = Show(
@@ -166,7 +183,10 @@ extension Show {
             popularity: 22.456,
             tmdbID: 155,
             genres: ["Action", "Crime", "Drama"],
-            rating: 9.0
+            rating: 9.0,
+            watchProviders: [
+                WatchProviderInfo(id: 384, name: "HBO Max", logoURL: "https://image.tmdb.org/t/p/w45/4KAy34EHvRM25Ih8wb82AuGU7zJ.jpg")
+            ]
         )
         
         let gameOfThrones = Show(
@@ -181,7 +201,10 @@ extension Show {
             popularity: 19.789,
             tmdbID: 1399,
             genres: ["Action", "Adventure", "Drama", "Fantasy"],
-            rating: 8.5
+            rating: 8.5,
+            watchProviders: [
+                WatchProviderInfo(id: 384, name: "HBO Max", logoURL: "https://image.tmdb.org/t/p/w45/4KAy34EHvRM25Ih8wb82AuGU7zJ.jpg")
+            ]
         )
         
         let noPosterShow = Show(
@@ -196,7 +219,10 @@ extension Show {
             popularity: 15.123,
             tmdbID: 603,
             genres: ["Action", "Sci-Fi"],
-            rating: 8.7
+            rating: 8.7,
+            watchProviders: [
+                WatchProviderInfo(id: 384, name: "HBO Max", logoURL: "https://image.tmdb.org/t/p/w45/4KAy34EHvRM25Ih8wb82AuGU7zJ.jpg")
+            ]
         )
         
         return [inception, breakingBad, theDarkKnight, gameOfThrones, noPosterShow]
