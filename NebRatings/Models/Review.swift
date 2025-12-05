@@ -9,16 +9,18 @@ import Foundation
 
 struct Review: Identifiable, Hashable {
     let id: UUID
-    let showID: UUID
+    let showID: Int  // Use TMDB ID directly
     let showTitle: String
+    let showCategory: Show.Category
     let author: String
     let comment: String
     let nebRating: Double
     let timestamp: Date
 
     init(id: UUID = UUID(),
-         showID: UUID,
+         showID: Int,
          showTitle: String,
+         showCategory: Show.Category,
          author: String,
          comment: String,
          nebRating: Double,
@@ -26,6 +28,7 @@ struct Review: Identifiable, Hashable {
         self.id = id
         self.showID = showID
         self.showTitle = showTitle
+        self.showCategory = showCategory
         self.author = author
         self.comment = comment
         self.nebRating = nebRating

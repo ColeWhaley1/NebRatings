@@ -38,6 +38,9 @@ struct ReviewsFeedView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Community Nebs")
+            .navigationDestination(for: Show.self) { show in
+                ShowDetailView(show: show)
+            }
             .searchable(text: $searchText, prompt: "Search reviews")
             .onAppear {
                 performQuery()
@@ -106,9 +109,12 @@ struct ReviewsFeedView: View {
             } else {
                 ForEach(store.reviews) { review in
                     let show = store.show(for: review)
-                    ReviewCard(review: review,
-                               showTitle: show?.title ?? review.showTitle,
-                               showCategory: show?.category)
+                    NavigationLink(value: show) {
+                        ReviewCard(review: review,
+                                   showTitle: show?.title ?? review.showTitle,
+                                   showCategory: show?.category ?? review.showCategory)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .listRowSeparator(.hidden)
             }

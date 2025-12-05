@@ -367,7 +367,7 @@ struct TMDBService: CatalogService {
     private func convertMovieToShow(_ movie: TMDBMovie) -> Show {
         let year = extractYear(from: movie.releaseDate)
         return Show(
-            id: UUID(),
+            id: movie.id,  // Use TMDB ID directly
             title: movie.title,
             category: .movie,
             year: year,
@@ -377,7 +377,6 @@ struct TMDBService: CatalogService {
             posterURL: posterURL(from: movie.posterPath),
             backdropURL: backdropURL(from: movie.backdropPath),
             popularity: movie.popularity ?? 0.0,
-            tmdbID: movie.id,
             genres: [], // Search results don't include genre names, only IDs
             rating: movie.voteAverage,
             watchProviders: [] // Search results don't include watch providers
@@ -387,7 +386,7 @@ struct TMDBService: CatalogService {
     private func convertTVToShow(_ tv: TMDBTV) -> Show {
         let year = extractYear(from: tv.firstAirDate)
         return Show(
-            id: UUID(),
+            id: tv.id,  // Use TMDB ID directly
             title: tv.name,
             category: .series,
             year: year,
@@ -397,7 +396,6 @@ struct TMDBService: CatalogService {
             posterURL: posterURL(from: tv.posterPath),
             backdropURL: backdropURL(from: tv.backdropPath),
             popularity: tv.popularity ?? 0.0,
-            tmdbID: tv.id,
             genres: [], // Search results don't include genre names, only IDs
             rating: tv.voteAverage,
             watchProviders: [] // Search results don't include watch providers
@@ -409,7 +407,7 @@ struct TMDBService: CatalogService {
         let genreNames = details.genres?.map { $0.name } ?? []
         let primaryProvider = watchProviders.first?.name ?? "Various"
         return Show(
-            id: UUID(),
+            id: details.id,  // Use TMDB ID directly
             title: details.title,
             category: .movie,
             year: year,
@@ -419,7 +417,6 @@ struct TMDBService: CatalogService {
             posterURL: posterURL(from: details.posterPath),
             backdropURL: backdropURL(from: details.backdropPath),
             popularity: 0.0, // Details endpoint doesn't include popularity
-            tmdbID: details.id,
             genres: genreNames,
             rating: details.voteAverage,
             watchProviders: watchProviders
@@ -431,7 +428,7 @@ struct TMDBService: CatalogService {
         let genreNames = details.genres?.map { $0.name } ?? []
         let primaryProvider = watchProviders.first?.name ?? "Various"
         return Show(
-            id: UUID(),
+            id: details.id,  // Use TMDB ID directly
             title: details.name,
             category: .series,
             year: year,
@@ -441,7 +438,6 @@ struct TMDBService: CatalogService {
             posterURL: posterURL(from: details.posterPath),
             backdropURL: backdropURL(from: details.backdropPath),
             popularity: 0.0, // Details endpoint doesn't include popularity
-            tmdbID: details.id,
             genres: genreNames,
             rating: details.voteAverage,
             watchProviders: watchProviders

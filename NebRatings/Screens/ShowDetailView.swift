@@ -16,24 +16,27 @@ struct ShowDetailView: View {
     @State private var newNebs: Double = 3
     @State private var detailedShow: Show?
     @State private var isProvidersExpanded = false
+    @FocusState private var isCommentFocused: Bool
     
     private var displayShow: Show {
         detailedShow ?? show
     }
 
-    private var reviews: [Review] {
-        store.reviews(for: show)
-    }
-    
-    private var sortedReviews: [Review] {
-        guard let currentUserName = store.currentUser?.name else {
-            return reviews
+    private func reviews() -> [Review] {
+        // Use displayShow.id to ensure we use the correct ID even if detailedShow was loaded
+        let showID = displayShow.id
+        let filtered = store.reviews.filter { $0.showID == showID }
+        print("📊 Filtered reviews: \(filtered.count) reviews for showID: \(showID)")
+        print("📊 Total reviews in store: \(store.reviews.count)")
+        if filtered.isEmpty && !store.reviews.isEmpty {
+            print("⚠️ No reviews matched! Sample review showIDs:")
+            for review in store.reviews.prefix(3) {
+                print("  - Review showID: \(review.showID), title: \(review.showTitle)")
+            }
         }
-        let userReviews = reviews.filter { $0.author == currentUserName }
-        let otherReviews = reviews.filter { $0.author != currentUserName }
-        return userReviews + otherReviews
+        return filtered
     }
-    
+
     private var yearFormatted: String {
         return "\(displayShow.year)"
     }
@@ -75,6 +78,10 @@ struct ShowDetailView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(displayShow.title)
         .navigationBarTitleDisplayMode(.inline)
+        .onTapGesture {
+            // Dismiss keyboard when tapping outside text fields
+            isCommentFocused = false
+        }
         .task {
             await loadShowDetails()
             await loadShowReviews()
@@ -83,16 +90,24 @@ struct ShowDetailView: View {
     }
     
     private func loadShowDetails() async {
-        // Fetch full details if we have a TMDB ID and don't already have genres
-        if let tmdbID = show.tmdbID, show.genres.isEmpty {
-            if let detailed = await store.fetchShowDetailsByTMDBID(tmdbID: tmdbID, category: show.category) {
+        // show.id is now the TMDB ID, so we can fetch details if genres are empty
+        if show.genres.isEmpty {
+            if let detailed = await store.fetchShowDetailsByTMDBID(tmdbID: show.id, category: show.category) {
                 detailedShow = detailed
+
+                // Now requery reviews with the correct id
+                await loadShowReviews()
+                await loadRecommendations()
             }
         }
     }
+
     
     private func loadShowReviews() async {
-        await store.queryReviews(showID: show.id)
+        // Use displayShow.id directly - it's now the TMDB ID
+        let showID = displayShow.id
+        print("🔍 Loading reviews for showID: \(showID)")
+        await store.queryReviews(showID: showID)
     }
     
     private func loadRecommendations() async {
@@ -298,18 +313,25 @@ struct ShowDetailView: View {
         }
     }
     
+    @ViewBuilder
     private var reviewsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Neb Reviews")
                 .font(.title3.bold())
                 .foregroundStyle(.primary)
-            if reviews.isEmpty {
+            
+            // Directly access store.reviews in view body so SwiftUI can observe it
+            // Then filter using the function
+            let allReviews = store.reviews
+            let filteredReviews = reviews()
+            
+            if filteredReviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
             } else {
                 VStack(spacing: 16) {
-                    ForEach(sortedReviews) { review in
+                    ForEach(filteredReviews) { review in
                         let isOwnReview = store.currentUser?.name == review.author
-                        ReviewCard(review: review, isOwnReview: isOwnReview)
+                        ReviewCard(review: review, showCategory: review.showCategory, isOwnReview: isOwnReview)
                     }
                 }
             }
@@ -341,6 +363,8 @@ struct ShowDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
                     .contentMargins(4.0)
+                    .focused($isCommentFocused)
+                    .focused($isCommentFocused)
             }
             Button(action: addReview) {
                 Label("Post Review", systemImage: "paperplane.fill")
@@ -359,12 +383,16 @@ struct ShowDetailView: View {
     private func addReview() {
         guard formIsValid else { return }
         let authorName = store.currentUser?.name ?? "Anonymous"
+        // Use displayShow to ensure we use the show with the correct ID
+        // Both show and detailedShow should have the same ID if they have the same tmdbID
         store.addReview(author: authorName,
                         comment: newComment.trimmingCharacters(in: .whitespacesAndNewlines),
                         rating: newNebs,
                         to: displayShow)
         newComment = ""
         newNebs = 3
+        // Dismiss keyboard
+        isCommentFocused = false
     }
 }
 

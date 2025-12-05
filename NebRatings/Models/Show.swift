@@ -29,7 +29,7 @@ struct Show: Identifiable, Hashable {
         }
     }
 
-    let id: UUID
+    let id: Int  // Use TMDB ID directly as the identifier
     let title: String
     let category: Category
     let year: Int
@@ -39,13 +39,12 @@ struct Show: Identifiable, Hashable {
     let posterURL: String?
     let backdropURL: String?
     let popularity: Double
-    let tmdbID: Int?
     let genres: [String]
     let rating: Double?
     let watchProviders: [WatchProviderInfo]
     var reviews: [Review]
 
-    init(id: UUID = UUID(),
+    init(id: Int,
          title: String,
          category: Category,
          year: Int,
@@ -55,7 +54,6 @@ struct Show: Identifiable, Hashable {
          posterURL: String? = nil,
          backdropURL: String? = nil,
          popularity: Double = 0.0,
-         tmdbID: Int? = nil,
          genres: [String] = [],
          rating: Double? = nil,
          watchProviders: [WatchProviderInfo] = [],
@@ -70,11 +68,15 @@ struct Show: Identifiable, Hashable {
         self.posterURL = posterURL
         self.backdropURL = backdropURL
         self.popularity = popularity
-        self.tmdbID = tmdbID
         self.genres = genres
         self.rating = rating
         self.watchProviders = watchProviders
         self.reviews = reviews
+    }
+    
+    // Computed property for backward compatibility if needed
+    var tmdbID: Int? {
+        return id
     }
 
     var averageNebs: Double {
@@ -90,11 +92,13 @@ struct Show: Identifiable, Hashable {
         || tagline.lowercased().contains(lowered)
         || streamingService.lowercased().contains(lowered)
     }
+    
 }
 
 extension Show {
     static let sampleData: [Show] = {
         var nebulaDrift = Show(
+            id: 999001,  // Placeholder ID for sample data
             title: "Nebula Drift",
             category: .movie,
             year: 2025,
@@ -103,11 +107,12 @@ extension Show {
             streamingService: "Neb+"
         )
         nebulaDrift.reviews = [
-            Review(showID: nebulaDrift.id, showTitle: nebulaDrift.title, author: "Cole", comment: "Incredible visuals and tense pacing. Dropping full nebs on this one.", nebRating: 5),
-            Review(showID: nebulaDrift.id, showTitle: nebulaDrift.title, author: "Mara", comment: "A bit cliché but the final act sticks the landing.", nebRating: 3.5)
+            Review(showID: nebulaDrift.id, showTitle: nebulaDrift.title, showCategory: nebulaDrift.category, author: "Cole", comment: "Incredible visuals and tense pacing. Dropping full nebs on this one.", nebRating: 5),
+            Review(showID: nebulaDrift.id, showTitle: nebulaDrift.title, showCategory: nebulaDrift.category, author: "Mara", comment: "A bit cliché but the final act sticks the landing.", nebRating: 3.5)
         ]
 
         var supperClub = Show(
+            id: 999002,  // Placeholder ID for sample data
             title: "Galactic Supper Club",
             category: .series,
             year: 2024,
@@ -116,10 +121,11 @@ extension Show {
             streamingService: "StreamSphere"
         )
         supperClub.reviews = [
-            Review(showID: supperClub.id, showTitle: supperClub.title, author: "Lando", comment: "Episode 3 made me hungry and emotional.", nebRating: 4.5)
+            Review(showID: supperClub.id, showTitle: supperClub.title, showCategory: supperClub.category, author: "Lando", comment: "Episode 3 made me hungry and emotional.", nebRating: 4.5)
         ]
 
         let echoes = Show(
+            id: 999003,  // Placeholder ID for sample data
             title: "Chronicle of Echoes",
             category: .series,
             year: 2023,
@@ -134,6 +140,7 @@ extension Show {
     // Preview data that resembles TMDB API responses
     static let previewData: [Show] = {
         let inception = Show(
+            id: 27205,  // Use TMDB ID directly
             title: "Inception",
             category: .movie,
             year: 2010,
@@ -143,7 +150,6 @@ extension Show {
             posterURL: "https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/s3TBrRGB1iav7gFOCNx3H31MoES.jpg",
             popularity: 24.631,
-            tmdbID: 27205,
             genres: ["Action", "Sci-Fi", "Thriller"],
             rating: 8.8,
             watchProviders: [
@@ -153,6 +159,7 @@ extension Show {
         )
         
         let breakingBad = Show(
+            id: 1396,  // Use TMDB ID directly
             title: "Breaking Bad",
             category: .series,
             year: 2008,
@@ -162,7 +169,6 @@ extension Show {
             posterURL: "https://image.tmdb.org/t/p/w500/ggFHVNu6YYI5L9pCfOacjizRGt.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg",
             popularity: 18.234,
-            tmdbID: 1396,
             genres: ["Crime", "Drama", "Thriller"],
             rating: 9.5,
             watchProviders: [
@@ -172,6 +178,7 @@ extension Show {
         )
         
         let theDarkKnight = Show(
+            id: 155,  // Use TMDB ID directly
             title: "The Dark Knight",
             category: .movie,
             year: 2008,
@@ -181,7 +188,6 @@ extension Show {
             posterURL: "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/hqkIcbrOHL86UncnHIsHVcVmzue.jpg",
             popularity: 22.456,
-            tmdbID: 155,
             genres: ["Action", "Crime", "Drama"],
             rating: 9.0,
             watchProviders: [
@@ -190,6 +196,7 @@ extension Show {
         )
         
         let gameOfThrones = Show(
+            id: 1399,  // Use TMDB ID directly
             title: "Game of Thrones",
             category: .series,
             year: 2011,
@@ -199,7 +206,6 @@ extension Show {
             posterURL: "https://image.tmdb.org/t/p/w500/u3bZgnGQ9T01sWNhyveQz0wH0Hl.jpg",
             backdropURL: "https://image.tmdb.org/t/p/w780/2OMB0ynKlyIenMJWI2Dy9IWT4cM.jpg",
             popularity: 19.789,
-            tmdbID: 1399,
             genres: ["Action", "Adventure", "Drama", "Fantasy"],
             rating: 8.5,
             watchProviders: [
@@ -208,6 +214,7 @@ extension Show {
         )
         
         let noPosterShow = Show(
+            id: 603,  // Use TMDB ID directly
             title: "The Matrix",
             category: .movie,
             year: 1999,
@@ -217,7 +224,6 @@ extension Show {
             posterURL: nil,
             backdropURL: nil,
             popularity: 15.123,
-            tmdbID: 603,
             genres: ["Action", "Sci-Fi"],
             rating: 8.7,
             watchProviders: [

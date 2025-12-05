@@ -48,10 +48,84 @@ struct FirebaseProfileService: ProfileService {
     }
 
     func fetchReviews(for userID: String) async throws -> [Review] {
-        // TODO: Query Firestore for user-specific reviews.
-        return Show.sampleData
-            .flatMap { $0.reviews }
-            .filter { _ in true } // keep all sample reviews
+        // Query Firestore for user-specific reviews
+        let query = db.collection("review")
+            .whereField("userId", isEqualTo: userID)
+            .limit(to: 100)
+        
+        let snapshot = try await query.getDocuments()
+        
+        // Map Firestore documents to Review models
+        var reviews: [Review] = []
+        
+        for document in snapshot.documents {
+            let data = document.data()
+            
+            // Parse all fields matching Review struct structure
+            // Handle both old format (showID as String/UUID) and new format (showID as Int)
+            let showID: Int
+            if let showIDInt = data["showID"] as? Int {
+                showID = showIDInt
+            } else if let showIDString = data["showID"] as? String {
+                // Legacy format - try to extract from showTMDBID or default
+                if let tmdbID = data["showTMDBID"] as? Int {
+                    showID = tmdbID
+                } else {
+                    print("⚠️ Review \(document.documentID) has string showID but no tmdbID, skipping")
+                    continue
+                }
+            } else {
+                print("Warning: Skipping review document \(document.documentID) - missing showID")
+                continue
+            }
+            
+            guard let showTitle = data["showTitle"] as? String,
+                  let author = data["author"] as? String,
+                  let comment = data["comment"] as? String,
+                  let nebRating = data["nebRating"] as? Double else {
+                print("Warning: Skipping review document \(document.documentID) - missing required fields")
+                continue
+            }
+            
+            // Parse timestamp
+            let timestamp: Date
+            if let timestampValue = data["timestamp"] as? Timestamp {
+                timestamp = timestampValue.dateValue()
+            } else {
+                // Fallback to current date if timestamp is missing
+                timestamp = Date()
+            }
+            
+            // Parse id from document ID
+            let id = UUID(uuidString: document.documentID) ?? UUID()
+            
+            // Parse category - handle both old reviews (without category) and new reviews (with category)
+            let showCategory: Show.Category
+            if let categoryString = data["showCategory"] as? String,
+               let category = Show.Category(rawValue: categoryString) {
+                showCategory = category
+            } else {
+                // Fallback: default to movie for existing reviews without category
+                showCategory = .movie
+                print("⚠️ Review \(document.documentID) missing category, defaulting to movie")
+            }
+            
+            // Create Review model matching the struct exactly
+            let review = Review(
+                id: id,
+                showID: showID,
+                showTitle: showTitle,
+                showCategory: showCategory,
+                author: author,
+                comment: comment,
+                nebRating: nebRating,
+                timestamp: timestamp
+            )
+            
+            reviews.append(review)
+        }
+        
+        return reviews
     }
 }
 

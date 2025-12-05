@@ -11,7 +11,7 @@ import Foundation
 @Observable
 final class NebRatingsStore {
     var shows: [Show] = []
-    private(set) var reviews: [Review] = []
+    var reviews: [Review] = []  // Made public for SwiftUI observation
     private(set) var currentUser: UserProfile?
     private(set) var userReviews: [Review] = []
     private(set) var isAuthenticated = false
@@ -27,7 +27,7 @@ final class NebRatingsStore {
     let authService: AuthService
     
     // Cache for searched shows to avoid re-fetching
-    private var showCache: [UUID: Show] = [:]
+    private var showCache: [Int: Show] = [:]
 
     init(catalogService: CatalogService = TMDBService(),
          reviewService: ReviewService = FirebaseReviewService(),
@@ -44,8 +44,45 @@ final class NebRatingsStore {
             Task {
                 await loadUserProfile()
             }
+        } else {
+            // Development-only auto-sign-in
+            #if DEBUG
+            Task {
+                await autoSignInForDevelopment()
+            }
+            #endif
         }
     }
+    
+    #if DEBUG
+    /// Development-only auto-sign-in for easier testing
+    private func autoSignInForDevelopment() async {
+        // Only auto-sign-in if not already authenticated
+        guard !isAuthenticated, authService.getCurrentUserID() == nil else {
+            return
+        }
+        
+        let devEmail = "colewhaley1@gmail.com"
+        let devPassword = "nebratings"
+        
+        do {
+            // Try to sign in with development credentials
+            let userID = try await authService.signIn(email: devEmail, password: devPassword)
+            await signIn(userID: userID)
+            print("✅ Development auto-sign-in successful")
+        } catch {
+            // If sign-in fails, try to create the account
+            do {
+                let userID = try await authService.signUp(email: devEmail, password: devPassword)
+                await createProfileIfNeeded(userID: userID, name: "Cole")
+                await signIn(userID: userID)
+                print("✅ Development account created and signed in")
+            } catch {
+                print("⚠️ Development auto-sign-in failed: \(error.localizedDescription)")
+            }
+        }
+    }
+    #endif
     
     func signIn(userID: String) async {
         isAuthenticated = true
@@ -120,7 +157,7 @@ final class NebRatingsStore {
     func queryReviews(searchText: String? = nil,
                     category: Show.Category? = nil,
                     minimumRating: Double? = nil,
-                    showID: UUID? = nil) async {
+                    showID: Int? = nil) async {
         isQueryingReviews = true
         defer { isQueryingReviews = false }
         
@@ -131,6 +168,8 @@ final class NebRatingsStore {
             showID: showID,
             limit: 100
         )
+        
+        print("Query:", query)
         
         do {
             let results = try await reviewService.queryReviews(query)
@@ -149,7 +188,9 @@ final class NebRatingsStore {
             }
             
             // Convert back to array, sorted by timestamp (newest first)
-            reviews = Array(reviewsDict.values).sorted { $0.timestamp > $1.timestamp }
+            // Explicitly assign to trigger SwiftUI updates
+            let sortedReviews = Array(reviewsDict.values).sorted { $0.timestamp > $1.timestamp }
+            reviews = sortedReviews
         } catch {
             // Handle error
             print("Error querying reviews: \(error)")
@@ -180,7 +221,7 @@ final class NebRatingsStore {
         }
     }
     
-    func fetchShowDetails(id: UUID, category: Show.Category) async -> Show? {
+    func fetchShowDetails(id: Int, category: Show.Category) async -> Show? {
         // Check cache first
         if let cached = showCache[id] {
             return cached
@@ -188,7 +229,7 @@ final class NebRatingsStore {
         
         // Fetch from API
         do {
-            if let show = try await catalogService.fetchShowDetails(id: id.uuidString, category: category) {
+            if let show = try await catalogService.fetchShowDetails(id: String(id), category: category) {
                 showCache[id] = show
                 return show
             }
@@ -215,7 +256,9 @@ final class NebRatingsStore {
     }
 
     func reviews(for show: Show) -> [Review] {
-        reviews.filter { $0.showID == show.id }
+        // Filter reviews for the specific show
+        // This method is called from views, so it will trigger updates when reviews array changes
+        return reviews.filter { $0.showID == show.id }
     }
 
     func show(for review: Review) -> Show? {
@@ -225,14 +268,36 @@ final class NebRatingsStore {
         }
         
         // Check current shows list
-        return shows.first(where: { $0.id == review.showID })
+        if let found = shows.first(where: { $0.id == review.showID }) {
+            return found
+        }
+        
+        // review.showID is now the TMDB ID, so fetch the show from TMDB
+        // Create a minimal show for immediate navigation, then fetch details
+        let minimalShow = Show(
+            id: review.showID,
+            title: review.showTitle,
+            category: review.showCategory,
+            year: 0,
+            synopsis: "",
+            tagline: "",
+            streamingService: "",
+            reviews: []
+        )
+        
+        // Fetch full details in background and cache it
+        Task {
+            if let fullShow = await fetchShowDetailsByTMDBID(tmdbID: review.showID, category: review.showCategory) {
+                showCache[review.showID] = fullShow
+            }
+        }
+        
+        return minimalShow
     }
 
     func loadRecommendations(for show: Show) async {
-        guard let tmdbID = show.tmdbID else {
-            recommendations = []
-            return
-        }
+        // show.id is now the TMDB ID
+        let tmdbID = show.id
         
         isLoadingRecommendations = true
         defer { isLoadingRecommendations = false }
@@ -254,18 +319,27 @@ final class NebRatingsStore {
     }
     
     func addReview(author: String, comment: String, rating: Double, to show: Show) {
-        let newReview = Review(showID: show.id, showTitle: show.title, author: author, comment: comment, nebRating: rating)
+        // Use the show's ID directly - it's now the TMDB ID
+        let showID = show.id
+        print("📝 Posting review with showID: \(showID)")
+        
+        let newReview = Review(showID: showID, showTitle: show.title, showCategory: show.category, author: author, comment: comment, nebRating: rating)
         
         // Add to local state immediately for optimistic UI
         // This ensures the review appears in the UI right away
+        // Create a new array to trigger SwiftUI updates
         if !reviews.contains(where: { $0.id == newReview.id }) {
-            reviews.insert(newReview, at: 0)
+            var updatedReviews = reviews
+            updatedReviews.insert(newReview, at: 0)
+            reviews = updatedReviews
         }
         
         // Update user reviews if it's the current user
         if let user = currentUser, author == user.name {
             if !userReviews.contains(where: { $0.id == newReview.id }) {
-                userReviews.insert(newReview, at: 0)
+                var updatedUserReviews = userReviews
+                updatedUserReviews.insert(newReview, at: 0)
+                userReviews = updatedUserReviews
             }
         }
 
@@ -279,10 +353,10 @@ final class NebRatingsStore {
             } catch {
                 // Handle error - revert optimistic update
                 print("Error submitting review: \(error)")
-                // Remove the optimistic update on error
-                reviews.removeAll(where: { $0.id == newReview.id })
+                // Remove the optimistic update on error - create new array to trigger SwiftUI updates
+                reviews = reviews.filter { $0.id != newReview.id }
                 if let user = currentUser, author == user.name {
-                    userReviews.removeAll(where: { $0.id == newReview.id })
+                    userReviews = userReviews.filter { $0.id != newReview.id }
                 }
             }
         }

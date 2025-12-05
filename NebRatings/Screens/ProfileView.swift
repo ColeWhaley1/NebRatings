@@ -20,6 +20,9 @@ struct ProfileView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Profile")
+            .navigationDestination(for: Show.self) { show in
+                ShowDetailView(show: show)
+            }
             .refreshable {
                 await store.loadUserProfile()
             }
@@ -47,9 +50,12 @@ struct ProfileView: View {
             } else {
                 ForEach(store.userReviews) { review in
                     let show = store.show(for: review)
-                    ReviewCard(review: review,
-                               showTitle: show?.title ?? review.showTitle,
-                               showCategory: show?.category)
+                    NavigationLink(value: show) {
+                        ReviewCard(review: review,
+                                   showTitle: show?.title ?? review.showTitle,
+                                   showCategory: show?.category ?? review.showCategory)
+                    }
+                    .buttonStyle(.plain)
                 }
                 .listRowSeparator(.hidden)
             }

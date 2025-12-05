@@ -14,7 +14,7 @@ struct ReviewQuery {
     var searchText: String?
     var category: Show.Category?
     var minimumRating: Double?
-    var showID: UUID?
+    var showID: Int?  // Use TMDB ID directly
     var authorID: String?
     var limit: Int = 50
 }
@@ -37,7 +37,8 @@ struct FirebaseReviewService: ReviewService {
         
         // Filter by showID if provided
         if let showID = query.showID {
-            firestoreQuery = firestoreQuery.whereField("showID", isEqualTo: showID.uuidString)
+            print("🔍 Querying reviews for showID: \(showID)")
+            firestoreQuery = firestoreQuery.whereField("showID", isEqualTo: showID)
         }
         
         // Filter by userId if provided (for authorID queries)
@@ -56,6 +57,7 @@ struct FirebaseReviewService: ReviewService {
         
         // Execute query
         let snapshot = try await firestoreQuery.getDocuments()
+        print("📊 Found \(snapshot.documents.count) review documents in Firestore")
         
         // Map Firestore documents to Review models
         var reviews: [Review] = []
@@ -64,14 +66,40 @@ struct FirebaseReviewService: ReviewService {
             let data = document.data()
             
             // Parse all fields matching Review struct structure
-            guard let showIDString = data["showID"] as? String,
-                  let showID = UUID(uuidString: showIDString),
-                  let showTitle = data["showTitle"] as? String,
+            // Handle both old format (showID as String/UUID) and new format (showID as Int)
+            let showID: Int
+            if let showIDInt = data["showID"] as? Int {
+                showID = showIDInt
+            } else if let showIDString = data["showID"] as? String {
+                // Legacy format - try to extract from showTMDBID or default
+                if let tmdbID = data["showTMDBID"] as? Int {
+                    showID = tmdbID
+                } else {
+                    print("⚠️ Review \(document.documentID) has string showID but no tmdbID, skipping")
+                    continue
+                }
+            } else {
+                print("Warning: Skipping review document \(document.documentID) - missing showID")
+                continue
+            }
+            
+            guard let showTitle = data["showTitle"] as? String,
                   let author = data["author"] as? String,
                   let comment = data["comment"] as? String,
                   let nebRating = data["nebRating"] as? Double else {
                 print("Warning: Skipping review document \(document.documentID) - missing required fields")
                 continue
+            }
+            
+            // Parse category - handle both old reviews (without category) and new reviews (with category)
+            let showCategory: Show.Category
+            if let categoryString = data["showCategory"] as? String,
+               let category = Show.Category(rawValue: categoryString) {
+                showCategory = category
+            } else {
+                // Fallback: default to movie for existing reviews without category
+                showCategory = .movie
+                print("⚠️ Review \(document.documentID) missing category, defaulting to movie")
             }
             
             // Parse timestamp
@@ -91,6 +119,7 @@ struct FirebaseReviewService: ReviewService {
                 id: id,
                 showID: showID,
                 showTitle: showTitle,
+                showCategory: showCategory,
                 author: author,
                 comment: comment,
                 nebRating: nebRating,
@@ -123,9 +152,11 @@ struct FirebaseReviewService: ReviewService {
         }
         
         // Map Review model to Firestore data structure - matching Review struct exactly
+        print("💾 Saving review with showID: \(review.showID)")
         let reviewData: [String: Any] = [
-            "showID": review.showID.uuidString,
+            "showID": review.showID,
             "showTitle": review.showTitle,
+            "showCategory": review.showCategory.rawValue,
             "author": review.author,
             "comment": review.comment,
             "nebRating": review.nebRating,
@@ -135,6 +166,7 @@ struct FirebaseReviewService: ReviewService {
         
         // Use review.id as the document ID to ensure uniqueness
         try await db.collection("review").document(review.id.uuidString).setData(reviewData)
+        print("✅ Review saved successfully")
     }
 }
 
