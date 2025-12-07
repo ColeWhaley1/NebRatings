@@ -29,6 +29,7 @@ struct ReviewsFeedView: View {
     @State private var categoryFilter: CategoryFilter = .all
     @State private var minimumRating: Double = 0
     @State private var queryTask: Task<Void, Never>?
+    @State private var reviewToEdit: Review?
 
     var body: some View {
         NavigationStack {
@@ -109,15 +110,75 @@ struct ReviewsFeedView: View {
             } else {
                 ForEach(store.reviews) { review in
                     let show = store.show(for: review)
+                    let isOwnReview = store.currentUser?.name == review.author
                     NavigationLink(value: show) {
                         ReviewCard(review: review,
                                    showTitle: show?.title ?? review.showTitle,
-                                   showCategory: show?.category ?? review.showCategory)
+                                   showCategory: show?.category ?? review.showCategory,
+                                   isOwnReview: isOwnReview)
                     }
                     .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if isOwnReview {
+                            Button {
+                                store.deleteReview(review)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                                    .symbolRenderingMode(.hierarchical)
+                            }
+                            .tint(Color.red.opacity(0.7))
+                            
+                            Button {
+                                reviewToEdit = review
+                            } label: {
+                                Label("Edit", systemImage: "pencil.line")
+                            }
+                            .tint(Color.blue.opacity(0.7))
+                        }
+                    }
                 }
                 .listRowSeparator(.hidden)
             }
         }
+        .sheet(item: $reviewToEdit) { review in
+            EditReviewView(review: review)
+                .environment(store)
+        }
     }
+}
+
+#Preview {
+    let store = NebRatingsStore()
+    // Populate with sample reviews for preview
+    store.reviews = Review.sampleData
+    
+    return ReviewsFeedView()
+        .environment(store)
+}
+
+#Preview("With Movie Filter") {
+    let store = NebRatingsStore()
+    // Filter to show only movie reviews
+    store.reviews = Review.sampleData.filter { $0.showCategory == .movie }
+    
+    return ReviewsFeedView()
+        .environment(store)
+}
+
+#Preview("With High Rating Filter") {
+    let store = NebRatingsStore()
+    // Filter to show only high-rated reviews
+    store.reviews = Review.sampleData.filter { $0.nebRating >= 4.5 }
+    
+    return ReviewsFeedView()
+        .environment(store)
+}
+
+#Preview("Empty State") {
+    let store = NebRatingsStore()
+    // Empty reviews to show empty state
+    store.reviews = []
+    
+    return ReviewsFeedView()
+        .environment(store)
 }

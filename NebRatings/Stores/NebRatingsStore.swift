@@ -173,24 +173,31 @@ final class NebRatingsStore {
         
         do {
             let results = try await reviewService.queryReviews(query)
-            // Merge results with existing reviews to preserve optimistic updates
-            // Use a dictionary to efficiently merge and update reviews
-            var reviewsDict: [UUID: Review] = [:]
             
-            // First, add all existing reviews (preserves local optimistic updates)
-            for review in reviews {
-                reviewsDict[review.id] = review
+            if let showID = showID {
+                // When querying for a specific show, merge results to preserve optimistic updates
+                // Use a dictionary to efficiently merge and update reviews
+                var reviewsDict: [UUID: Review] = [:]
+                
+                // First, add all existing reviews (preserves local optimistic updates)
+                for review in reviews {
+                    reviewsDict[review.id] = review
+                }
+                
+                // Then, update/add reviews from Firestore (Firestore data takes precedence for existing reviews)
+                for result in results {
+                    reviewsDict[result.id] = result
+                }
+                
+                // Convert back to array, sorted by timestamp (newest first)
+                let sortedReviews = Array(reviewsDict.values).sorted { $0.timestamp > $1.timestamp }
+                reviews = sortedReviews
+            } else {
+                // When querying the feed (no showID), replace reviews with filtered results only
+                // This ensures the UI shows only the filtered reviews
+                let sortedReviews = results.sorted { $0.timestamp > $1.timestamp }
+                reviews = sortedReviews
             }
-            
-            // Then, update/add reviews from Firestore (Firestore data takes precedence for existing reviews)
-            for result in results {
-                reviewsDict[result.id] = result
-            }
-            
-            // Convert back to array, sorted by timestamp (newest first)
-            // Explicitly assign to trigger SwiftUI updates
-            let sortedReviews = Array(reviewsDict.values).sorted { $0.timestamp > $1.timestamp }
-            reviews = sortedReviews
         } catch {
             // Handle error
             print("Error querying reviews: \(error)")
@@ -357,6 +364,97 @@ final class NebRatingsStore {
                 reviews = reviews.filter { $0.id != newReview.id }
                 if let user = currentUser, author == user.name {
                     userReviews = userReviews.filter { $0.id != newReview.id }
+                }
+            }
+        }
+    }
+    
+    func updateReview(_ review: Review, comment: String, rating: Double) {
+        print("📝 Updating review with ID: \(review.id)")
+        
+        // Create updated review with new comment and rating
+        let updatedReview = Review(
+            id: review.id,
+            showID: review.showID,
+            showTitle: review.showTitle,
+            showCategory: review.showCategory,
+            author: review.author,
+            comment: comment.trimmingCharacters(in: .whitespacesAndNewlines),
+            nebRating: rating,
+            timestamp: review.timestamp // Keep original timestamp
+        )
+        
+        // Update in local state immediately for optimistic UI
+        if let index = reviews.firstIndex(where: { $0.id == review.id }) {
+            var updatedReviews = reviews
+            updatedReviews[index] = updatedReview
+            reviews = updatedReviews
+        }
+        
+        // Update user reviews if it's the current user
+        if let user = currentUser, review.author == user.name {
+            if let index = userReviews.firstIndex(where: { $0.id == review.id }) {
+                var updatedUserReviews = userReviews
+                updatedUserReviews[index] = updatedReview
+                userReviews = updatedUserReviews
+            }
+        }
+        
+        // Update in Firestore in background
+        Task {
+            do {
+                try await reviewService.update(review: updatedReview)
+                // Refresh reviews to ensure consistency with Firestore
+                await queryReviews(showID: review.showID)
+            } catch {
+                // Handle error - revert optimistic update
+                print("Error updating review: \(error)")
+                // Revert to original review
+                if let index = reviews.firstIndex(where: { $0.id == review.id }) {
+                    var updatedReviews = reviews
+                    updatedReviews[index] = review
+                    reviews = updatedReviews
+                }
+                if let user = currentUser, review.author == user.name {
+                    if let index = userReviews.firstIndex(where: { $0.id == review.id }) {
+                        var updatedUserReviews = userReviews
+                        updatedUserReviews[index] = review
+                        userReviews = updatedUserReviews
+                    }
+                }
+            }
+        }
+    }
+    
+    func deleteReview(_ review: Review) {
+        print("🗑️ Deleting review with ID: \(review.id)")
+        
+        // Remove from local state immediately for optimistic UI
+        reviews = reviews.filter { $0.id != review.id }
+        
+        // Remove from user reviews if it's the current user
+        if let user = currentUser, review.author == user.name {
+            userReviews = userReviews.filter { $0.id != review.id }
+        }
+        
+        // Delete from Firestore in background
+        Task {
+            do {
+                try await reviewService.delete(review: review)
+                // Refresh reviews to ensure consistency with Firestore
+                await queryReviews(showID: review.showID)
+            } catch {
+                // Handle error - restore optimistic update
+                print("Error deleting review: \(error)")
+                // Restore the review
+                var updatedReviews = reviews
+                updatedReviews.append(review)
+                reviews = updatedReviews.sorted { $0.timestamp > $1.timestamp }
+                
+                if let user = currentUser, review.author == user.name {
+                    var updatedUserReviews = userReviews
+                    updatedUserReviews.append(review)
+                    userReviews = updatedUserReviews.sorted { $0.timestamp > $1.timestamp }
                 }
             }
         }

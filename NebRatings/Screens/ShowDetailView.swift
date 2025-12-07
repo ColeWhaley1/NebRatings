@@ -7,6 +7,15 @@
 
 import SwiftUI
 
+// PreferenceKey to measure review card heights
+struct ReviewHeightPreferenceKey: PreferenceKey {
+    static var defaultValue: [UUID: CGFloat] = [:]
+    
+    static func reduce(value: inout [UUID: CGFloat], nextValue: () -> [UUID: CGFloat]) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
 struct ShowDetailView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @Environment(\.dismiss) private var dismiss
@@ -17,6 +26,8 @@ struct ShowDetailView: View {
     @State private var detailedShow: Show?
     @State private var isProvidersExpanded = false
     @FocusState private var isCommentFocused: Bool
+    @State private var reviewToEdit: Review?
+    @State private var reviewHeights: [UUID: CGFloat] = [:]
     
     private var displayShow: Show {
         detailedShow ?? show
@@ -35,6 +46,15 @@ struct ShowDetailView: View {
             }
         }
         return filtered
+    }
+    
+    private func calculateTotalHeight(for reviews: [Review]) -> CGFloat {
+        let totalHeight = reviews.reduce(0.0) { total, review in
+            // Height already includes row insets from the preference
+            let rowHeight = reviewHeights[review.id] ?? 176 // Fallback: 160 card + 16 insets
+            return total + rowHeight
+        }
+        return totalHeight
     }
 
     private var yearFormatted: String {
@@ -328,13 +348,58 @@ struct ShowDetailView: View {
             if filteredReviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
             } else {
-                VStack(spacing: 16) {
+                List {
                     ForEach(filteredReviews) { review in
                         let isOwnReview = store.currentUser?.name == review.author
                         ReviewCard(review: review, showCategory: review.showCategory, isOwnReview: isOwnReview)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .background(
+                                GeometryReader { geometry in
+                                    Color.clear
+                                        .preference(key: ReviewHeightPreferenceKey.self, value: [review.id: geometry.size.height + 16]) // +16 for row insets
+                                }
+                            )
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if isOwnReview {
+                                    Button {
+                                        store.deleteReview(review)
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                            .symbolRenderingMode(.hierarchical)
+                                    }
+                                    .tint(Color.red.opacity(0.7))
+                                    
+                                    Button {
+                                        reviewToEdit = review
+                                    } label: {
+                                        Label("Edit", systemImage: "pencil.line")
+                                    }
+                                    .tint(Color.blue.opacity(0.7))
+                                }
+                            }
                     }
+                    // Spacer row for bottom padding
+                    Color.clear
+                        .frame(height: 16)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .scrollDisabled(true)
+                .environment(\.defaultMinListRowHeight, 0)
+                .onPreferenceChange(ReviewHeightPreferenceKey.self) { heights in
+                    reviewHeights.merge(heights) { _, new in new }
+                }
+                .frame(height: max(calculateTotalHeight(for: filteredReviews) + 4, 100)) // +16 for bottom padding, min 100
             }
+        }
+        .sheet(item: $reviewToEdit) { review in
+            EditReviewView(review: review)
+                .environment(store)
         }
     }
 

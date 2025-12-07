@@ -22,6 +22,8 @@ struct ReviewQuery {
 protocol ReviewService {
     func queryReviews(_ query: ReviewQuery) async throws -> [Review]
     func submit(review: Review) async throws
+    func update(review: Review) async throws
+    func delete(review: Review) async throws
 }
 
 struct FirebaseReviewService: ReviewService {
@@ -47,9 +49,19 @@ struct FirebaseReviewService: ReviewService {
             firestoreQuery = firestoreQuery.whereField("userId", isEqualTo: authorID)
         }
         
-        // Filter by minimum rating if provided
+        // Filter by minimum rating if provided (do this in Firestore)
         if let minRating = query.minimumRating {
+            print("🔍 Filtering by minimum rating in Firestore: \(minRating)")
             firestoreQuery = firestoreQuery.whereField("nebRating", isGreaterThanOrEqualTo: minRating)
+        }
+        
+        // Filter by category in Firestore if provided and we're NOT filtering by minimumRating
+        // (Firestore compound queries with range filters require composite indexes)
+        // If we have both category and minimumRating, we'll filter by category client-side instead
+        let shouldFilterCategoryInFirestore = query.category != nil && query.minimumRating == nil
+        if shouldFilterCategoryInFirestore {
+            print("🔍 Filtering by category in Firestore: \(query.category!.rawValue)")
+            firestoreQuery = firestoreQuery.whereField("showCategory", isEqualTo: query.category!.rawValue)
         }
         
         // Apply limit
@@ -129,9 +141,17 @@ struct FirebaseReviewService: ReviewService {
             reviews.append(review)
         }
         
+        // Apply category filter client-side if we have both category and minimumRating
+        // (to avoid Firestore compound query issues that require composite indexes)
+        if let category = query.category, !shouldFilterCategoryInFirestore {
+            print("🔍 Filtering by category client-side: \(category.rawValue)")
+            reviews = reviews.filter { $0.showCategory == category }
+        }
+        
         // Apply text search filter if provided (client-side since Firestore text search is limited)
         if let searchText = query.searchText, !searchText.isEmpty {
             let lowered = searchText.lowercased()
+            print("🔍 Filtering by search text client-side: \(searchText)")
             reviews = reviews.filter {
                 $0.comment.lowercased().contains(lowered) ||
                 $0.author.lowercased().contains(lowered) ||
@@ -139,6 +159,7 @@ struct FirebaseReviewService: ReviewService {
             }
         }
         
+        print("✅ Returning \(reviews.count) filtered reviews")
         return reviews
     }
 
@@ -167,6 +188,68 @@ struct FirebaseReviewService: ReviewService {
         // Use review.id as the document ID to ensure uniqueness
         try await db.collection("review").document(review.id.uuidString).setData(reviewData)
         print("✅ Review saved successfully")
+    }
+    
+    func update(review: Review) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseReviewService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        
+        guard let userID = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirebaseReviewService", code: -2, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        
+        // Map Review model to Firestore data structure - matching Review struct exactly
+        print("💾 Updating review with showID: \(review.showID)")
+        let reviewData: [String: Any] = [
+            "showID": review.showID,
+            "showTitle": review.showTitle,
+            "showCategory": review.showCategory.rawValue,
+            "author": review.author,
+            "comment": review.comment,
+            "nebRating": review.nebRating,
+            "timestamp": Timestamp(date: review.timestamp),
+            "userId": userID  // Keep userId for querying by author
+        ]
+        
+        // Update the existing document
+        try await db.collection("review").document(review.id.uuidString).updateData(reviewData)
+        print("✅ Review updated successfully")
+    }
+    
+    func delete(review: Review) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseReviewService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        
+        guard let userID = Auth.auth().currentUser?.uid else {
+            throw NSError(domain: "FirebaseReviewService", code: -2, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        
+        // Use review.id.uuidString as the document ID (this is how we store it)
+        let documentRef = db.collection("review").document(review.id.uuidString)
+        
+        print("🗑️ Attempting to delete review:")
+        print("   - Document ID: \(review.id.uuidString)")
+        print("   - ShowID (Int): \(review.showID)")
+        print("   - User ID: \(userID)")
+        print("   - Author: \(review.author)")
+        
+        // Let Firestore security rules handle authorization
+        // The security rules should check that request.auth.uid == resource.data.userId
+        do {
+            try await documentRef.delete()
+            print("✅ Review deleted successfully")
+        } catch {
+            print("❌ Error deleting review: \(error.localizedDescription)")
+            // Re-throw with more context
+            if let nsError = error as NSError? {
+                print("   - Error domain: \(nsError.domain)")
+                print("   - Error code: \(nsError.code)")
+                print("   - Error userInfo: \(nsError.userInfo)")
+            }
+            throw error
+        }
     }
 }
 
