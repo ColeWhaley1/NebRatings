@@ -74,7 +74,7 @@ final class NebRatingsStore {
             // If sign-in fails, try to create the account
             do {
                 let userID = try await authService.signUp(email: devEmail, password: devPassword)
-                await createProfileIfNeeded(userID: userID, name: "Cole")
+                try await createProfileIfNeeded(userID: userID, name: "Cole")
                 await signIn(userID: userID)
                 print("✅ Development account created and signed in")
             } catch {
@@ -89,12 +89,17 @@ final class NebRatingsStore {
         await loadUserProfile()
     }
     
-    func createProfileIfNeeded(userID: String, name: String) async {
+    func createProfileIfNeeded(userID: String, name: String) async throws {
+        // Always try to create the profile - Firestore setData will overwrite if it exists
+        // This is simpler and ensures the profile is created with the correct name
         do {
+            print("📝 Creating profile for user: \(userID) with name: \(name)")
             try await profileService.createProfile(userID: userID, name: name)
+            print("✅ Profile created/updated successfully for user: \(userID)")
         } catch {
-            // If profile already exists, that's okay - just continue
-            print("Profile creation note: \(error.localizedDescription)")
+            print("❌ Error creating profile: \(error.localizedDescription)")
+            // Re-throw the error so the caller can handle it
+            throw error
         }
     }
     
@@ -161,12 +166,16 @@ final class NebRatingsStore {
         isQueryingReviews = true
         defer { isQueryingReviews = false }
         
+        // For show-specific queries, use a higher limit to fetch all reviews
+        // For feed queries, use a smaller limit
+        let limit = showID != nil ? 1000 : 100
+        
         let query = ReviewQuery(
             searchText: searchText,
             category: category,
             minimumRating: minimumRating,
             showID: showID,
-            limit: 100
+            limit: limit
         )
         
         print("Query:", query)
@@ -330,42 +339,104 @@ final class NebRatingsStore {
         let showID = show.id
         print("📝 Posting review with showID: \(showID)")
         
-        let newReview = Review(showID: showID, showTitle: show.title, showCategory: show.category, author: author, comment: comment, nebRating: rating)
+        // Safety check: if user already has a review, update it instead of creating duplicate
+        // (This shouldn't happen if UI is working correctly, but serves as a safeguard)
+        Task {
+            do {
+                // Check local state first
+                let localExistingReview = reviews.first { review in
+                    review.showID == showID && review.author == author
+                }
+                
+                if let existingReview = localExistingReview {
+                    // User already has a review - update it
+                    print("📝 User already has a review for this show, updating existing review")
+                    await updateReview(existingReview, comment: comment, rating: rating)
+                    return
+                }
+                
+                // Check Firestore if user is logged in
+                if let userID = currentUser?.id {
+                    let existingReviewQuery = ReviewQuery(
+                        showID: showID,
+                        authorID: userID,
+                        limit: 1
+                    )
+                    let existingReviews = try await reviewService.queryReviews(existingReviewQuery)
+                    
+                    if let existingReview = existingReviews.first {
+                        // User already has a review - update it
+                        print("📝 User already has a review in Firestore, updating existing review")
+                        await updateReview(existingReview, comment: comment, rating: rating)
+                        return
+                    }
+                }
+                
+                // No existing review - create a new one
+                let newReview = Review(showID: showID, showTitle: show.title, showCategory: show.category, author: author, comment: comment, nebRating: rating)
+                
+                // Add to local state immediately for optimistic UI
+                if !reviews.contains(where: { $0.id == newReview.id }) {
+                    var updatedReviews = reviews
+                    updatedReviews.insert(newReview, at: 0)
+                    reviews = updatedReviews
+                }
+                
+                // Update user reviews if it's the current user
+                if let user = currentUser, author == user.name {
+                    if !userReviews.contains(where: { $0.id == newReview.id }) {
+                        var updatedUserReviews = userReviews
+                        updatedUserReviews.insert(newReview, at: 0)
+                        userReviews = updatedUserReviews
+                    }
+                }
+                
+                // Submit to Firestore
+                try await reviewService.submit(review: newReview)
+                // Refresh reviews for this show
+                await queryReviews(showID: show.id)
+            } catch {
+                // Handle error
+                print("Error submitting review: \(error)")
+            }
+        }
+    }
+    
+    private func updateReview(_ review: Review, comment: String, rating: Double) async {
+        let updatedReview = Review(
+            id: review.id,
+            showID: review.showID,
+            showTitle: review.showTitle,
+            showCategory: review.showCategory,
+            author: review.author,
+            comment: comment,
+            nebRating: rating,
+            timestamp: review.timestamp // Keep original timestamp
+        )
         
-        // Add to local state immediately for optimistic UI
-        // This ensures the review appears in the UI right away
-        // Create a new array to trigger SwiftUI updates
-        if !reviews.contains(where: { $0.id == newReview.id }) {
+        // Update in local state immediately for optimistic UI
+        if let index = reviews.firstIndex(where: { $0.id == review.id }) {
             var updatedReviews = reviews
-            updatedReviews.insert(newReview, at: 0)
+            updatedReviews[index] = updatedReview
             reviews = updatedReviews
         }
         
         // Update user reviews if it's the current user
-        if let user = currentUser, author == user.name {
-            if !userReviews.contains(where: { $0.id == newReview.id }) {
+        if let user = currentUser, review.author == user.name {
+            if let index = userReviews.firstIndex(where: { $0.id == review.id }) {
                 var updatedUserReviews = userReviews
-                updatedUserReviews.insert(newReview, at: 0)
+                updatedUserReviews[index] = updatedReview
                 userReviews = updatedUserReviews
             }
         }
-
-        // Submit to Firestore in background
-        Task {
-            do {
-                try await reviewService.submit(review: newReview)
-                // Refresh reviews for this show to ensure consistency with Firestore
-                // This will merge the Firestore version with local reviews
-                await queryReviews(showID: show.id)
-            } catch {
-                // Handle error - revert optimistic update
-                print("Error submitting review: \(error)")
-                // Remove the optimistic update on error - create new array to trigger SwiftUI updates
-                reviews = reviews.filter { $0.id != newReview.id }
-                if let user = currentUser, author == user.name {
-                    userReviews = userReviews.filter { $0.id != newReview.id }
-                }
-            }
+        
+        // Update in Firestore
+        do {
+            try await reviewService.update(review: updatedReview)
+            // Refresh reviews for this show
+            await queryReviews(showID: review.showID)
+        } catch {
+            print("Error updating review: \(error)")
         }
     }
     

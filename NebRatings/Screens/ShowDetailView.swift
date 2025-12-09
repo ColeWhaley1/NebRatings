@@ -28,6 +28,8 @@ struct ShowDetailView: View {
     @FocusState private var isCommentFocused: Bool
     @State private var reviewToEdit: Review?
     @State private var reviewHeights: [UUID: CGFloat] = [:]
+    @State private var currentReviewPage: Int = 0
+    @State private var expandedReview: Review?
     
     private var displayShow: Show {
         detailedShow ?? show
@@ -45,7 +47,43 @@ struct ShowDetailView: View {
                 print("  - Review showID: \(review.showID), title: \(review.showTitle)")
             }
         }
-        return filtered
+        
+        // Sort reviews: user's review first, then by timestamp (newest first)
+        let currentUserName = store.currentUser?.name
+        let sorted = filtered.sorted { review1, review2 in
+            let isReview1Own = review1.author == currentUserName
+            let isReview2Own = review2.author == currentUserName
+            
+            // User's own review always comes first
+            if isReview1Own && !isReview2Own {
+                return true
+            }
+            if !isReview1Own && isReview2Own {
+                return false
+            }
+            
+            // If both are own reviews or both are not, sort by timestamp (newest first)
+            return review1.timestamp > review2.timestamp
+        }
+        
+        // Return all reviews (no limit, pagination handled in UI)
+        return sorted
+    }
+    
+    private var userHasReview: Bool {
+        guard let currentUser = store.currentUser else { return false }
+        let showID = displayShow.id
+        return store.reviews.contains { review in
+            review.showID == showID && review.author == currentUser.name
+        }
+    }
+    
+    private var userReview: Review? {
+        guard let currentUser = store.currentUser else { return nil }
+        let showID = displayShow.id
+        return store.reviews.first { review in
+            review.showID == showID && review.author == currentUser.name
+        }
     }
     
     private func calculateTotalHeight(for reviews: [Review]) -> CGFloat {
@@ -56,6 +94,7 @@ struct ShowDetailView: View {
         }
         return totalHeight
     }
+    
 
     private var yearFormatted: String {
         return "\(displayShow.year)"
@@ -335,109 +374,230 @@ struct ShowDetailView: View {
     
     @ViewBuilder
     private var reviewsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Neb Reviews")
-                .font(.title3.bold())
-                .foregroundStyle(.primary)
+        
+        let allReviews = reviews()
+        let reviewPages = chunkReviews(allReviews, pageSize: 5)
+        
+        VStack(alignment: .leading, spacing: 4) {
+            // Header with title and navigation arrows
+            HStack {
+                Text("Neb Reviews")
+                    .font(.title3.bold())
+                    .foregroundStyle(.primary)
+                
+                Spacer()
+                
+                if !allReviews.isEmpty && reviewPages.count > 1 {
+                    // Left arrow
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            if currentReviewPage > 0 {
+                                currentReviewPage -= 1
+                            }
+                        }
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                            .foregroundStyle(currentReviewPage > 0 ? Color.primary : Color.gray.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                    }
+                    .disabled(currentReviewPage == 0)
+                    
+                    // Right arrow
+                    Button(action: {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            if currentReviewPage < reviewPages.count - 1 {
+                                currentReviewPage += 1
+                            }
+                        }
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .font(.title3)
+                            .foregroundStyle(currentReviewPage < reviewPages.count - 1 ? Color.primary : Color.gray.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                    }
+                    .disabled(currentReviewPage >= reviewPages.count - 1)
+                }
+            }
+            .padding(.bottom, 8)
             
-            // Directly access store.reviews in view body so SwiftUI can observe it
-            // Then filter using the function
-            let allReviews = store.reviews
-            let filteredReviews = reviews()
-            
-            if filteredReviews.isEmpty {
+            if allReviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
             } else {
-                List {
-                    ForEach(filteredReviews) { review in
-                        let isOwnReview = store.currentUser?.name == review.author
-                        ReviewCard(review: review, showCategory: review.showCategory, isOwnReview: isOwnReview)
-                            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .background(
-                                GeometryReader { geometry in
-                                    Color.clear
-                                        .preference(key: ReviewHeightPreferenceKey.self, value: [review.id: geometry.size.height + 16]) // +16 for row insets
-                                }
-                            )
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if isOwnReview {
-                                    Button {
-                                        store.deleteReview(review)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                            .symbolRenderingMode(.hierarchical)
+                VStack(spacing: 12) {
+                    // TabView for smooth page transitions with full-width cards
+                    TabView(selection: $currentReviewPage) {
+                        ForEach(0..<reviewPages.count, id: \.self) { pageIndex in
+                            HStack(spacing: 0) {
+                                // Left spacing
+                                Spacer()
+                                    .frame(width: 8)
+                                
+                                // Content area with full-width cards
+                                VStack(spacing: 8) {
+                                    ForEach(reviewPages[pageIndex]) { review in
+                                        let isOwnReview = store.currentUser?.name == review.author
+                                        ReviewCard(
+                                            review: review,
+                                            showCategory: review.showCategory,
+                                            isOwnReview: isOwnReview,
+                                            onTap: {
+                                                expandedReview = review
+                                            }
+                                        )
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            if isOwnReview {
+                                                Button {
+                                                    store.deleteReview(review)
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                        .symbolRenderingMode(.hierarchical)
+                                                }
+                                                .tint(Color.red.opacity(0.7))
+                                                
+                                                Button {
+                                                    reviewToEdit = review
+                                                } label: {
+                                                    Label("Edit", systemImage: "pencil.line")
+                                                }
+                                                .tint(Color.blue.opacity(0.7))
+                                            }
+                                        }
                                     }
-                                    .tint(Color.red.opacity(0.7))
-                                    
-                                    Button {
-                                        reviewToEdit = review
-                                    } label: {
-                                        Label("Edit", systemImage: "pencil.line")
-                                    }
-                                    .tint(Color.blue.opacity(0.7))
                                 }
+                                .frame(maxWidth: .infinity)
+                                
+                                // Right spacing
+                                Spacer()
+                                    .frame(width: 8)
                             }
+                            .tag(pageIndex)
+                        }
                     }
-                    // Spacer row for bottom padding
-                    Color.clear
-                        .frame(height: 16)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .frame(height: calculateMaxCarouselHeight(for: reviewPages))
+                    .animation(.easeInOut(duration: 0.3), value: currentReviewPage)
+                    
+                    // Page indicator
+                    if reviewPages.count > 1 {
+                        HStack(spacing: 6) {
+                            ForEach(0..<reviewPages.count, id: \.self) { index in
+                                Circle()
+                                    .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .scrollDisabled(true)
-                .environment(\.defaultMinListRowHeight, 0)
-                .onPreferenceChange(ReviewHeightPreferenceKey.self) { heights in
-                    reviewHeights.merge(heights) { _, new in new }
-                }
-                .frame(height: max(calculateTotalHeight(for: filteredReviews) + 4, 100)) // +16 for bottom padding, min 100
             }
         }
         .sheet(item: $reviewToEdit) { review in
             EditReviewView(review: review)
                 .environment(store)
         }
+        .sheet(item: $expandedReview) { review in
+            ExpandedReviewView(review: review)
+        }
+        .onChange(of: allReviews.count) { _, _ in
+            // Reset to first page if reviews change
+            if currentReviewPage > 0 && allReviews.isEmpty {
+                currentReviewPage = 0
+            }
+        }
+    }
+    
+    private func chunkReviews(_ reviews: [Review], pageSize: Int) -> [[Review]] {
+        var chunks: [[Review]] = []
+        for i in stride(from: 0, to: reviews.count, by: pageSize) {
+            let chunk = Array(reviews[i..<min(i + pageSize, reviews.count)])
+            chunks.append(chunk)
+        }
+        return chunks
+    }
+    
+    private func calculateCarouselHeight(for reviews: [Review]) -> CGFloat {
+        // Fixed height: 180pt per review card + 8pt spacing between cards
+        let cardHeight: CGFloat = 180
+        let spacing: CGFloat = 8
+        let totalHeight = CGFloat(reviews.count) * cardHeight + CGFloat(max(0, reviews.count - 1)) * spacing
+        return max(totalHeight, cardHeight)
+    }
+    
+    private func calculateMaxCarouselHeight(for reviewPages: [[Review]]) -> CGFloat {
+        // Fixed height: 180pt per review card + 8pt spacing between cards
+        // Max 5 reviews per page
+        let cardHeight: CGFloat = 180
+        let spacing: CGFloat = 8
+        let maxReviewsPerPage = 5
+        let totalHeight = CGFloat(maxReviewsPerPage) * cardHeight + CGFloat(maxReviewsPerPage - 1) * spacing
+        return totalHeight
     }
 
     private var addReviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Drop Your Nebs")
-                .font(.title3.bold())
-                .foregroundStyle(.primary)
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Rating")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.primary)
-                NebRatingView(rating: newNebs)
-                Slider(value: $newNebs, in: 0...5, step: 0.5)
+            if userHasReview, let existingReview = userReview {
+                // User already has a review - show message to edit instead
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                        Text("You've already reviewed this")
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                    }
+                    
+                    Text("Swipe left on your review below to edit or delete it.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    
+                    Button(action: {
+                        reviewToEdit = existingReview
+                    }) {
+                        Label("Edit Your Review", systemImage: "pencil.line")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
                     .tint(.purple)
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Comment")
-                    .font(.subheadline.bold())
+                }
+                .padding()
+                .background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            } else {
+                // User doesn't have a review - show the form
+                Text("Drop Your Nebs")
+                    .font(.title3.bold())
                     .foregroundStyle(.primary)
-                TextEditor(text: $newComment)
-                    .frame(minHeight: 120)
-                    .scrollContentBackground(.hidden)
-                    .background(Color(.systemBackground))
-                    .foregroundColor(.primary)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
-                    .contentMargins(4.0)
-                    .focused($isCommentFocused)
-                    .focused($isCommentFocused)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Rating")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                    NebRatingView(rating: newNebs)
+                    Slider(value: $newNebs, in: 0...5, step: 0.5)
+                        .tint(.purple)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Comment")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                    TextEditor(text: $newComment)
+                        .frame(minHeight: 120)
+                        .scrollContentBackground(.hidden)
+                        .background(Color(.systemBackground))
+                        .foregroundColor(.primary)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
+                        .contentMargins(4.0)
+                        .focused($isCommentFocused)
+                }
+                Button(action: addReview) {
+                    Label("Post Review", systemImage: "paperplane.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+                .disabled(!formIsValid)
             }
-            Button(action: addReview) {
-                Label("Post Review", systemImage: "paperplane.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(.purple)
-            .disabled(!formIsValid)
         }
     }
 
@@ -475,6 +635,70 @@ struct ShowDetailView: View {
 #Preview("Without Poster") {
     let show = Show.previewData[4] // No poster show
     let store = NebRatingsStore()
+    
+    return NavigationStack {
+        ShowDetailView(show: show)
+            .environment(store)
+    }
+}
+
+#Preview("With Many Reviews") {
+    let show = Show.previewData[2] // The Dark Knight
+    let store = NebRatingsStore()
+    
+    // Generate 20 reviews for this show
+    let now = Date()
+    let calendar = Calendar.current
+    let showID = show.id
+    let sampleAuthors = ["Alex", "Sarah", "Mike", "Emma", "Jordan", "Chris", "Taylor", "Riley", "Morgan", "Casey", "Drew", "Jamie", "Quinn", "Parker", "Sam", "Blake", "Cameron", "Avery", "Reese", "Dakota"]
+    let sampleComments = [
+        // Very short comments
+        "Perfect!",
+        "Amazing film.",
+        "Loved it!",
+        
+        // Medium comments
+        "Absolutely incredible! One of the best superhero movies ever made.",
+        "Heath Ledger's performance as the Joker is legendary. Oscar-worthy!",
+        "The action sequences are mind-blowing. The bank heist opening is perfect.",
+        "Christopher Nolan's direction is masterful. Every scene is perfectly crafted.",
+        "The Dark Knight elevates the superhero genre to new heights.",
+        
+        // Long comments
+        "Intense, gripping, and emotionally powerful. A true masterpiece that redefined what superhero movies could be. The way Christopher Nolan weaves together complex themes of justice, morality, and chaos is nothing short of brilliant. Heath Ledger's Joker is not just a villain, but a force of nature that challenges everything Batman stands for. Every viewing reveals new layers and subtleties that I missed before.",
+        "The cinematography is stunning. Gotham feels real and lived-in, creating an atmosphere that perfectly matches the dark tone of the story. Wally Pfister's work here is exemplary - the way he uses shadows and light to create tension is masterful. The practical effects, especially in the truck flip scene, are absolutely breathtaking. This is filmmaking at its finest.",
+        "Aaron Eckhart as Two-Face is also fantastic. His transformation from Harvey Dent, the White Knight of Gotham, into the vengeful Two-Face is both heartbreaking and terrifying. The character arc is perfectly executed, showing how tragedy can corrupt even the most noble of souls. The makeup effects are incredible and add to the horror of the character.",
+        "The moral complexity makes this more than just a comic book movie. It asks deep questions about what justice truly means, whether the ends justify the means, and how society can maintain order in the face of chaos. The film doesn't provide easy answers, instead forcing the audience to grapple with these difficult themes. This philosophical depth elevates it far above typical genre fare.",
+        "The pacing is perfect. Despite its nearly three-hour runtime, the film never feels slow or bloated. Every scene serves a purpose, every line of dialogue matters. The tension builds relentlessly from the opening bank heist to the climactic confrontation with the Joker. It's a masterclass in narrative structure and pacing.",
+        "One of those rare sequels that's better than the original. While Batman Begins was excellent, The Dark Knight takes everything that worked and amplifies it to perfection. The stakes are higher, the villains are more compelling, and the emotional impact is greater. This is how you make a sequel that surpasses its predecessor.",
+        "The score by Hans Zimmer and James Newton Howard is incredible. The theme for the Joker, with its jarring, dissonant strings, perfectly captures the character's chaotic nature. The Batman theme builds on what was established in the first film, becoming more heroic and powerful. The music enhances every scene, creating an atmosphere that is both epic and intimate. It gives me chills every single time I hear it.",
+        "This is what all superhero movies should strive to be. It proves that comic book adaptations can be serious, thought-provoking cinema while still delivering thrilling action and spectacle. The Dark Knight doesn't talk down to its audience or rely on shallow spectacle - it respects the intelligence of viewers and delivers a complex, emotionally resonant story.",
+        "Rewatched it recently and it still holds up perfectly. More than a decade later, this film feels as fresh and impactful as it did on first viewing. The themes remain relevant, the performances are still astonishing, and the technical achievements continue to impress. It's a timeless work of art that will be studied and admired for generations to come.",
+        "The practical effects make all the difference. There's no over-reliance on CGI here - real stunts, real explosions, real buildings being destroyed. This gives the action sequences weight and authenticity that many modern films lack. The truck flip scene, where an actual truck was flipped using a cable system, is one of the most impressive stunts ever filmed. It's the kind of practical filmmaking that makes you appreciate the craft.",
+        "Christian Bale is the definitive Batman in my opinion. His portrayal captures both the tortured soul of Bruce Wayne and the calculated intensity of Batman. He brings gravitas and emotional depth to the role that few actors could match. The voice he uses for Batman might be a bit much for some, but it works perfectly in the context of the film - it's intimidating and distinct.",
+        "The truck flip scene is one of the most impressive stunts ever filmed. The fact that they actually flipped a real truck using cables and explosives is mind-boggling. It's the kind of practical filmmaking that makes you appreciate the dedication and skill of the crew. The scene is perfectly shot and edited, creating a moment of pure cinematic spectacle that is both thrilling and awe-inspiring.",
+        "Philosophically rich while still being entertaining. The film explores deep questions about justice, morality, and the nature of heroism without ever feeling pretentious or preachy. The Joker's philosophy of chaos versus Batman's belief in order creates a fascinating moral and philosophical debate that runs throughout the film. It's rare to find a blockbuster that can be this intellectually stimulating while still being thoroughly entertaining.",
+        "The ending is perfect. Sets up the sequel beautifully while also providing a satisfying conclusion to this chapter of the story. Batman's decision to take the blame for Harvey Dent's crimes in order to preserve his legacy shows true heroism - he sacrifices his own reputation for the greater good. The final shot of Batman running from the police, with Commissioner Gordon's narration, is both haunting and inspiring."
+    ]
+    let ratings: [Double] = [5.0, 5.0, 5.0, 4.5, 5.0, 4.5, 5.0, 4.0, 5.0, 4.5, 5.0, 5.0, 4.0, 5.0, 4.5, 5.0, 4.5, 5.0, 4.5, 5.0]
+    
+    var reviews: [Review] = []
+    for i in 0..<20 {
+        let daysAgo = i
+        let hoursAgo = i * 2
+        reviews.append(Review(
+            showID: showID,
+            showTitle: show.title,
+            showCategory: show.category,
+            author: sampleAuthors[i],
+            comment: sampleComments[i],
+            nebRating: ratings[i],
+            timestamp: calendar.date(byAdding: .hour, value: -hoursAgo, to: now) ?? now
+        ))
+    }
+    
+    // Sort by timestamp (newest first)
+    store.reviews = reviews.sorted { $0.timestamp > $1.timestamp }
     
     return NavigationStack {
         ShowDetailView(show: show)

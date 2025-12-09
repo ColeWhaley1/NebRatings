@@ -30,6 +30,7 @@ struct ReviewsFeedView: View {
     @State private var minimumRating: Double = 0
     @State private var queryTask: Task<Void, Never>?
     @State private var reviewToEdit: Review?
+    @State private var displayedReviewCount: Int = 5
 
     var body: some View {
         NavigationStack {
@@ -47,12 +48,15 @@ struct ReviewsFeedView: View {
                 performQuery()
             }
             .onChange(of: searchText) { _, _ in
+                displayedReviewCount = 5
                 performQuery()
             }
             .onChange(of: categoryFilter) { _, _ in
+                displayedReviewCount = 5
                 performQuery()
             }
             .onChange(of: minimumRating) { _, _ in
+                displayedReviewCount = 5
                 performQuery()
             }
         }
@@ -97,7 +101,7 @@ struct ReviewsFeedView: View {
     }
 
     private var reviewsSection: some View {
-        Section("Reviews") {
+        Section("Recent Reviews") {
             if store.isQueryingReviews {
                 HStack {
                     Spacer()
@@ -105,10 +109,10 @@ struct ReviewsFeedView: View {
                     Spacer()
                 }
                 .padding()
-            } else if store.reviews.isEmpty {
+            } else if displayableReviews.isEmpty {
                 ContentUnavailableView("No reviews match", systemImage: "text.magnifyingglass", description: Text("Try adjusting the filters."))
             } else {
-                ForEach(store.reviews) { review in
+                ForEach(Array(displayableReviews.prefix(displayedReviewCount))) { review in
                     let show = store.show(for: review)
                     let isOwnReview = store.currentUser?.name == review.author
                     NavigationLink(value: show) {
@@ -138,12 +142,68 @@ struct ReviewsFeedView: View {
                     }
                 }
                 .listRowSeparator(.hidden)
+                
+                // Show Less button if showing more than default (5)
+                if displayedReviewCount > 5 {
+                    Button(action: {
+                        displayedReviewCount = max(5, displayedReviewCount - 5)
+                    }) {
+                        HStack {
+                            Spacer()
+                            Text("Show Less")
+                                .font(.subheadline)
+                                .foregroundStyle(.gray)
+                            Image(systemName: "chevron.up")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                // Show More button if there are more reviews
+                if displayableReviews.count > displayedReviewCount {
+                    Button(action: {
+                        displayedReviewCount += 5
+                    }) {
+                        HStack {
+                            Spacer()
+                            Text("Show More")
+                                .font(.subheadline)
+                                .foregroundStyle(.gray)
+                            Image(systemName: "chevron.down")
+                                .font(.caption)
+                                .foregroundStyle(.gray)
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .sheet(item: $reviewToEdit) { review in
             EditReviewView(review: review)
                 .environment(store)
         }
+    }
+    
+    /// Returns the reviews that should be displayed.
+    /// When searching (searchText is not empty), returns all matching reviews.
+    /// When not searching, returns max 10 most recent reviews.
+    private var displayableReviews: [Review] {
+        let allReviews = store.reviews
+        
+        // If searching, show all matching reviews
+        if !searchText.isEmpty {
+            return allReviews
+        }
+        
+        // When not searching, limit to 10 most recent reviews
+        // Reviews are already sorted by timestamp (newest first) from the store
+        return Array(allReviews.prefix(10))
     }
 }
 

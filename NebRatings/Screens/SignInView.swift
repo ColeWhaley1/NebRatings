@@ -184,7 +184,18 @@ struct SignInView: View {
                 )
                 // Create profile with the entered name
                 let userName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-                await store.createProfileIfNeeded(userID: userID, name: userName)
+                do {
+                    try await store.createProfileIfNeeded(userID: userID, name: userName)
+                } catch {
+                    // If profile creation fails, show error and prevent sign-in
+                    // The user account was created but profile wasn't, so sign them out
+                    errorMessage = "Account created but profile setup failed: \(error.localizedDescription). Please try signing in again."
+                    print("❌ Profile creation failed during sign-up: \(error.localizedDescription)")
+                    // Sign out the user since profile creation failed
+                    try? await store.authService.signOut()
+                    isSigningUp = false
+                    return
+                }
                 await store.signIn(userID: userID)
                 isSigningUp = false
             } catch {
