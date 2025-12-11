@@ -18,7 +18,6 @@ struct ProfileView: View {
     }
     
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
-    @AppStorage("colorScheme") private var colorScheme: String = "system"
     @State private var reviewToEdit: Review?
     @State private var sortOption: ReviewSortOption = .mostRecent
 
@@ -27,10 +26,21 @@ struct ProfileView: View {
             List {
                 profileSection
                 reviewsSection
-                settingsSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Profile")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    NavigationLink {
+                        SettingsView()
+                            .environment(store)
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
             .navigationDestination(for: Show.self) { show in
                 ShowDetailView(show: show)
             }
@@ -126,23 +136,5 @@ struct ProfileView: View {
         }
     }
     
-    private var settingsSection: some View {
-        Section("Settings") {
-            Picker("Appearance", selection: $colorScheme) {
-                Text("System").tag("system")
-                Text("Light").tag("light")
-                Text("Dark").tag("dark")
-            }
-            .pickerStyle(.menu)
-            
-            Button(role: .destructive, action: {
-                Task {
-                    await store.signOut()
-                }
-            }) {
-                Label("Sign Out", systemImage: "arrow.right.square")
-            }
-        }
-    }
 }
 
