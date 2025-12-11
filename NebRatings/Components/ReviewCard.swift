@@ -7,17 +7,21 @@
 
 import SwiftUI
 
-struct TruncatedTextHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
-struct FullTextHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+// Modifier to conditionally add tap gesture only when onTap is provided
+struct ConditionalTapGestureModifier: ViewModifier {
+    let onTap: (() -> Void)?
+    
+    func body(content: Content) -> some View {
+        if let onTap = onTap {
+            content
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    onTap()
+                }
+        } else {
+            content
+                .contentShape(Rectangle())
+        }
     }
 }
 
@@ -27,19 +31,52 @@ struct ReviewCard: View {
     var showCategory: Show.Category?
     var isOwnReview: Bool = false
     var onTap: (() -> Void)? = nil
+    var useLighterBackground: Bool = false // For Reviews tab to add contrast
     @Environment(\.colorScheme) var colorScheme
-    @State private var truncatedHeight: CGFloat = 0
-    @State private var fullHeight: CGFloat = 0
     
     private let fixedCardHeight: CGFloat = 180
     private let commentLineLimit = 3
     
-    private var isTruncated: Bool {
-        truncatedHeight > 0 && fullHeight > 0 && fullHeight > truncatedHeight
+    private var backgroundShape: some View {
+        Group {
+            if isOwnReview {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.purple.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(.thinMaterial)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(
+                                Color.purple.opacity(0.3),
+                                lineWidth: 2
+                            )
+                    )
+            } else {
+                // Use a visible background that contrasts with white in light mode
+                // In Reviews tab, use slightly lighter background for better contrast
+                let backgroundColor: Color = {
+                    if useLighterBackground {
+                        // Reviews tab - slightly lighter for contrast
+                        return colorScheme == .light 
+                            ? Color.gray.opacity(0.2) // Slightly lighter gray for light mode
+                            : Color(uiColor: UIColor.tertiarySystemBackground) // Tertiary background for dark mode
+                    } else {
+                        // ShowDetailView - same as list background
+                        return colorScheme == .light 
+                            ? Color.gray.opacity(0.15) // Light gray for light mode
+                            : Color(uiColor: UIColor.secondarySystemBackground)  // System background for dark mode
+                    }
+                }()
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(backgroundColor)
+            }
+        }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 8) {
             if let showTitle {
                 HStack(spacing: 8) {
                     if let showCategory {
@@ -57,126 +94,54 @@ struct ReviewCard: View {
                 }
             }
 
-            // Author name on its own line
-            HStack(spacing: 6) {
-                Text(review.author)
-                    .font(isOwnReview ? .headline.bold() : .headline)
-                    .foregroundStyle(isOwnReview ? .purple : .primary)
-                if isOwnReview {
-                    Text("(You)")
-                        .font(.caption)
-                        .foregroundStyle(.purple)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.purple.opacity(0.15), in: Capsule())
+            // Author name and rating on the same line
+            HStack(spacing: 8) {
+                // Author name with ellipsis if too long
+                HStack(spacing: 6) {
+                    Text(review.author)
+                        .font(isOwnReview ? .headline.bold() : .headline)
+                        .foregroundStyle(isOwnReview ? .purple : .primary)
+                        .lineLimit(1)
+                    if isOwnReview {
+                        Text("(You)")
+                            .font(.caption)
+                            .foregroundStyle(.purple)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.purple.opacity(0.15), in: Capsule())
+                    }
                 }
-            }
-            
-            // Rating on its own line
-            HStack {
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Rating fixed to right
                 NebRatingView(rating: review.nebRating)
             }
             
-            // Comment with truncation indicator
-            VStack(alignment: .leading, spacing: 4) {
-                // Visible truncated text
-                Text(review.comment)
-                    .font(.body)
-                    .foregroundStyle(.primary)
-                    .lineLimit(commentLineLimit)
-                    .multilineTextAlignment(.leading)
-                
-                // Show "Tap to read more" only if text is truncated
-                if isTruncated {
-                    HStack {
-                        Spacer()
-                        Text("Tap to read more")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .italic()
-                    }
-                }
-            }
-            .background(
-                // Measure full text height vs truncated
-                ZStack(alignment: .topLeading) {
-                    Text(review.comment)
-                        .font(.body)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity)
-                        .opacity(0)
-                        .background(
-                            GeometryReader { fullGeo in
-                                Color.clear
-                                    .preference(key: FullTextHeightKey.self, value: fullGeo.size.height)
-                            }
-                        )
-                    
-                    Text(review.comment)
-                        .font(.body)
-                        .lineLimit(commentLineLimit)
-                        .frame(maxWidth: .infinity)
-                        .opacity(0)
-                        .background(
-                            GeometryReader { truncatedGeo in
-                                Color.clear
-                                    .preference(key: TruncatedTextHeightKey.self, value: truncatedGeo.size.height)
-                            }
-                        )
-                }
-                .hidden()
-            )
-            .onPreferenceChange(TruncatedTextHeightKey.self) { height in
-                truncatedHeight = height
-            }
-            .onPreferenceChange(FullTextHeightKey.self) { height in
-                fullHeight = height
-            }
+            // Comment - ellipsis will appear automatically when truncated
+            Text(review.comment)
+                .font(.body)
+                .foregroundStyle(.primary)
+                .lineLimit(commentLineLimit)
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             
+            // Spacer to push timestamp to bottom
+            Spacer(minLength: 0)
+            
+            // Timestamp fixed to bottom left with padding
             Text(review.timestamp.formatted(date: .abbreviated, time: .shortened))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-        .padding()
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
         .frame(height: fixedCardHeight, alignment: .top)
-        .background {
-            Group {
-                if isOwnReview {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.purple.opacity(0.08))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16)
-                                .fill(.thinMaterial)
-                        )
-                } else {
-                    // Use a visible background that contrasts with white in light mode
-                    let backgroundColor = colorScheme == .light 
-                    ? Color.gray.opacity(0.15) // Light gray for light mode
-                        : Color(uiColor: UIColor.secondarySystemBackground)  // System background for dark mode
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(backgroundColor)
-                }
-            }
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(
-                    isOwnReview 
-                        ? Color.purple.opacity(0.3) 
-                        : Color.clear,
-                    lineWidth: isOwnReview ? 2 : 0
-                )
-        )
+        .background(backgroundShape)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .simultaneousGesture(
-            TapGesture()
-                .onEnded { _ in
-                    onTap?()
-                }
-        )
+        .modifier(ConditionalTapGestureModifier(onTap: onTap))
     }
     
 }

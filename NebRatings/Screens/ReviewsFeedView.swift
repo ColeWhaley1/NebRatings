@@ -31,6 +31,7 @@ struct ReviewsFeedView: View {
     @State private var queryTask: Task<Void, Never>?
     @State private var reviewToEdit: Review?
     @State private var displayedReviewCount: Int = 5
+    @State private var cachedReviews: [Review] = []
 
     var body: some View {
         NavigationStack {
@@ -102,7 +103,8 @@ struct ReviewsFeedView: View {
 
     private var reviewsSection: some View {
         Section("Recent Reviews") {
-            if store.isQueryingReviews {
+            // Only show loading indicator if we have no reviews yet (initial load)
+            if store.isQueryingReviews && displayableReviews.isEmpty {
                 HStack {
                     Spacer()
                     ProgressView()
@@ -112,36 +114,53 @@ struct ReviewsFeedView: View {
             } else if displayableReviews.isEmpty {
                 ContentUnavailableView("No reviews match", systemImage: "text.magnifyingglass", description: Text("Try adjusting the filters."))
             } else {
+                // Show existing reviews even while loading new ones to prevent flicker
                 ForEach(Array(displayableReviews.prefix(displayedReviewCount))) { review in
+                    // Add ID for stable animations
                     let show = store.show(for: review)
                     let isOwnReview = store.currentUser?.name == review.author
-                    NavigationLink(value: show) {
-                        ReviewCard(review: review,
-                                   showTitle: show?.title ?? review.showTitle,
-                                   showCategory: show?.category ?? review.showCategory,
-                                   isOwnReview: isOwnReview)
-                    }
-                    .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        if isOwnReview {
-                            Button {
-                                store.deleteReview(review)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                                    .symbolRenderingMode(.hierarchical)
+                    if let show = show {
+                        NavigationLink(value: show) {
+                            ReviewCard(review: review,
+                                       showTitle: show.title,
+                                       showCategory: show.category,
+                                       isOwnReview: isOwnReview,
+                                       useLighterBackground: true)
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if isOwnReview {
+                                Button {
+                                    store.deleteReview(review)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                        .symbolRenderingMode(.hierarchical)
+                                }
+                                .tint(Color.red.opacity(0.7))
+                                
+                                Button {
+                                    reviewToEdit = review
+                                } label: {
+                                    Label("Edit", systemImage: "pencil.line")
+                                }
+                                .tint(Color.blue.opacity(0.7))
                             }
-                            .tint(Color.red.opacity(0.7))
-                            
-                            Button {
-                                reviewToEdit = review
-                            } label: {
-                                Label("Edit", systemImage: "pencil.line")
-                            }
-                            .tint(Color.blue.opacity(0.7))
                         }
                     }
                 }
                 .listRowSeparator(.hidden)
+                .animation(.default, value: displayableReviews.count)
+                .animation(.default, value: displayedReviewCount)
+                
+                // Show loading indicator overlay if querying and we have reviews
+                if store.isQueryingReviews && !displayableReviews.isEmpty {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .padding(.vertical, 8)
+                        Spacer()
+                    }
+                }
                 
                 // Show Less button if showing more than default (5)
                 if displayedReviewCount > 5 {
@@ -193,8 +212,15 @@ struct ReviewsFeedView: View {
     /// Returns the reviews that should be displayed.
     /// When searching (searchText is not empty), returns all matching reviews.
     /// When not searching, returns max 10 most recent reviews.
+    /// Uses cached reviews while loading to prevent flicker.
     private var displayableReviews: [Review] {
-        let allReviews = store.reviews
+        // While querying, use cached reviews if available to prevent flicker
+        let allReviews = store.isQueryingReviews && !cachedReviews.isEmpty ? cachedReviews : store.reviews
+        
+        // Update cache when not querying
+        if !store.isQueryingReviews {
+            cachedReviews = store.reviews
+        }
         
         // If searching, show all matching reviews
         if !searchText.isEmpty {

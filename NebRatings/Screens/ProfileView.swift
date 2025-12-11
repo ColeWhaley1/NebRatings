@@ -89,30 +89,30 @@ struct ProfileView: View {
                 
                 ForEach(sortedReviews) { review in
                     let show = store.show(for: review)
-                    HStack(spacing: 0) {
+                    if let show = show {
                         NavigationLink(value: show) {
                             ReviewCard(review: review,
-                                       showTitle: show?.title ?? review.showTitle,
-                                       showCategory: show?.category ?? review.showCategory,
+                                       showTitle: show.title,
+                                       showCategory: show.category,
                                        isOwnReview: true)
                         }
                         .buttonStyle(.plain)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button {
-                            store.deleteReview(review)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                                .symbolRenderingMode(.hierarchical)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button {
+                                store.deleteReview(review)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                                    .symbolRenderingMode(.hierarchical)
+                            }
+                            .tint(Color.red.opacity(0.7))
+                            
+                            Button {
+                                reviewToEdit = review
+                            } label: {
+                                Label("Edit", systemImage: "pencil.line")
+                            }
+                            .tint(Color.blue.opacity(0.7))
                         }
-                        .tint(Color.red.opacity(0.7))
-                        
-                        Button {
-                            reviewToEdit = review
-                        } label: {
-                            Label("Edit", systemImage: "pencil.line")
-                        }
-                        .tint(Color.blue.opacity(0.7))
                     }
                 }
                 .listRowSeparator(.hidden)

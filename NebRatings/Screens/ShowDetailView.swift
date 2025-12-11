@@ -19,6 +19,7 @@ struct ReviewHeightPreferenceKey: PreferenceKey {
 struct ShowDetailView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     let show: Show
 
     @State private var newComment = ""
@@ -379,6 +380,9 @@ struct ShowDetailView: View {
         let reviewPages = chunkReviews(allReviews, pageSize: 5)
         
         VStack(alignment: .leading, spacing: 4) {
+            Spacer()
+                .frame(height: 4)
+            
             // Header with title and navigation arrows
             HStack {
                 Text("Neb Reviews")
@@ -419,7 +423,7 @@ struct ShowDetailView: View {
                     .disabled(currentReviewPage >= reviewPages.count - 1)
                 }
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, 16)
             
             if allReviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
@@ -429,12 +433,12 @@ struct ShowDetailView: View {
                     TabView(selection: $currentReviewPage) {
                         ForEach(0..<reviewPages.count, id: \.self) { pageIndex in
                             HStack(spacing: 0) {
-                                // Left spacing
+                                // Left spacing for gap between pages
                                 Spacer()
                                     .frame(width: 8)
                                 
                                 // Content area with full-width cards
-                                VStack(spacing: 8) {
+                                List {
                                     ForEach(reviewPages[pageIndex]) { review in
                                         let isOwnReview = store.currentUser?.name == review.author
                                         ReviewCard(
@@ -445,7 +449,9 @@ struct ShowDetailView: View {
                                                 expandedReview = review
                                             }
                                         )
-                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
+                                        .listRowBackground(Color.clear)
+                                        .listRowSeparator(.hidden)
                                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                             if isOwnReview {
                                                 Button {
@@ -466,9 +472,13 @@ struct ShowDetailView: View {
                                         }
                                     }
                                 }
+                                .listStyle(.plain)
+                                .scrollContentBackground(.hidden)
+                                .scrollDisabled(true)
+                                .environment(\.defaultMinListRowHeight, 0)
                                 .frame(maxWidth: .infinity)
                                 
-                                // Right spacing
+                                // Right spacing for gap between pages
                                 Spacer()
                                     .frame(width: 8)
                             }
@@ -476,7 +486,7 @@ struct ShowDetailView: View {
                         }
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
-                    .frame(height: calculateMaxCarouselHeight(for: reviewPages))
+                    .frame(height: calculateActualCarouselHeight(for: allReviews, reviewPages: reviewPages))
                     .animation(.easeInOut(duration: 0.3), value: currentReviewPage)
                     
                     // Page indicator
@@ -492,6 +502,9 @@ struct ShowDetailView: View {
                     }
                 }
             }
+            
+            Spacer()
+                .frame(height: 4)
         }
         .sheet(item: $reviewToEdit) { review in
             EditReviewView(review: review)
@@ -534,6 +547,22 @@ struct ShowDetailView: View {
         let totalHeight = CGFloat(maxReviewsPerPage) * cardHeight + CGFloat(maxReviewsPerPage - 1) * spacing
         return totalHeight
     }
+    
+    private func calculateActualCarouselHeight(for allReviews: [Review], reviewPages: [[Review]]) -> CGFloat {
+        // Fixed height: 180pt per review card + 8pt spacing between cards
+        let cardHeight: CGFloat = 180
+        let spacing: CGFloat = 8
+        
+        // If 5 or fewer reviews, calculate height based on actual number of reviews
+        if allReviews.count <= 5 {
+            let reviewCount = allReviews.count
+            let totalHeight = CGFloat(reviewCount) * cardHeight + CGFloat(max(0, reviewCount - 1)) * spacing
+            return totalHeight
+        }
+        
+        // If more than 5 reviews, use max height (for carousel with 5 reviews per page)
+        return calculateMaxCarouselHeight(for: reviewPages)
+    }
 
     private var addReviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -562,7 +591,12 @@ struct ShowDetailView: View {
                     .tint(.purple)
                 }
                 .padding()
-                .background(Color.purple.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+                .background(
+                    colorScheme == .dark 
+                        ? Color.purple.opacity(0.25)
+                        : Color.purple.opacity(0.1),
+                    in: RoundedRectangle(cornerRadius: 12)
+                )
             } else {
                 // User doesn't have a review - show the form
                 Text("Drop Your Nebs")
