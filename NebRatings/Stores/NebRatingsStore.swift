@@ -226,6 +226,22 @@ final class NebRatingsStore {
             currentUser = nil
         }
     }
+    
+    func updateProfileName(_ newName: String) async {
+        guard let userID = authService.getCurrentUserID(),
+              !newName.trimmingCharacters(in: .whitespaces).isEmpty else {
+            print("⚠️ Cannot update profile: invalid user ID or empty name")
+            return
+        }
+        
+        do {
+            try await profileService.updateProfile(userID: userID, name: newName.trimmingCharacters(in: .whitespaces))
+            // Reload profile to get updated data
+            await loadUserProfile()
+        } catch {
+            print("❌ Error updating profile name: \(error.localizedDescription)")
+        }
+    }
 
     private func loadUserReviews(for userID: String) async {
         do {

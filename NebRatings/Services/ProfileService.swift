@@ -12,6 +12,7 @@ import FirebaseCore
 
 protocol ProfileService {
     func createProfile(userID: String, name: String) async throws
+    func updateProfile(userID: String, name: String) async throws
     func fetchCurrentUser() async throws -> UserProfile
     func fetchReviews(for userID: String) async throws -> [Review]
 }
@@ -30,6 +31,12 @@ struct FirebaseProfileService: ProfileService {
         ]
         
         try await db.collection("profile").document(userID).setData(profileData)
+    }
+    
+    func updateProfile(userID: String, name: String) async throws {
+        try await db.collection("profile").document(userID).updateData([
+            "name": name
+        ])
     }
     
     func fetchCurrentUser() async throws -> UserProfile {

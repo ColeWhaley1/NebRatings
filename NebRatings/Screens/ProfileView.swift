@@ -20,6 +20,9 @@ struct ProfileView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @State private var reviewToEdit: Review?
     @State private var sortOption: ReviewSortOption = .mostRecent
+    @State private var isEditingName = false
+    @State private var editedName = ""
+    @State private var isUpdatingName = false
 
     var body: some View {
         NavigationStack {
@@ -53,15 +56,78 @@ struct ProfileView: View {
     private var profileSection: some View {
         Section("Account") {
             if let user = store.currentUser {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(user.name)
-                        .font(.system(size: 22, weight: .bold, design: .default))
+                if isEditingName {
+                    // Edit mode
+                    HStack {
+                        TextField("Name", text: $editedName)
+                            .font(.system(size: 22, weight: .bold, design: .default))
+                            .textFieldStyle(.plain)
+                            .disabled(isUpdatingName)
+                        
+                        if isUpdatingName {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                        } else {
+                            Button("Save") {
+                                Task {
+                                    await saveName()
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            
+                            Button("Cancel") {
+                                cancelEdit()
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } else {
+                    // Display mode
+                    HStack {
+                        Text(user.name)
+                            .font(.system(size: 22, weight: .bold, design: .default))
+                        Spacer()
+                        Button {
+                            startEditing()
+                        } label: {
+                            Image(systemName: "pencil")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
                 }
-                .padding(.vertical, 4)
             } else {
                 ContentUnavailableView("No profile yet", systemImage: "person.crop.circle.badge.questionmark", description: Text("Sign in to load your neb persona."))
             }
         }
+    }
+    
+    private func startEditing() {
+        if let user = store.currentUser {
+            editedName = user.name
+            isEditingName = true
+        }
+    }
+    
+    private func cancelEdit() {
+        isEditingName = false
+        editedName = ""
+    }
+    
+    private func saveName() async {
+        guard !editedName.trimmingCharacters(in: .whitespaces).isEmpty else {
+            return
+        }
+        
+        isUpdatingName = true
+        await store.updateProfileName(editedName)
+        isUpdatingName = false
+        isEditingName = false
+        editedName = ""
     }
 
     private var sortedReviews: [Review] {
