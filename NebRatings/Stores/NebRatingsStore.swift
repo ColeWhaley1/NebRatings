@@ -16,6 +16,7 @@ final class NebRatingsStore {
     private(set) var userReviews: [Review] = []
     private(set) var isAuthenticated = false
     private(set) var recommendations: [Show] = []
+    var showLists: [ShowList] = []
     
     var isSearchingShows = false
     private(set) var isQueryingReviews = false
@@ -24,18 +25,21 @@ final class NebRatingsStore {
     private let catalogService: CatalogService
     private let reviewService: ReviewService
     private let profileService: ProfileService
+    private let listService: ListService
     let authService: AuthService
     
     // Cache for searched shows to avoid re-fetching
-    private var showCache: [Int: Show] = [:]
+    var showCache: [Int: Show] = [:]
 
     init(catalogService: CatalogService = TMDBService(),
          reviewService: ReviewService = FirebaseReviewService(),
          profileService: ProfileService = FirebaseProfileService(),
+         listService: ListService = FirebaseListService(),
          authService: AuthService = FirebaseAuthService()) {
         self.catalogService = catalogService
         self.reviewService = reviewService
         self.profileService = profileService
+        self.listService = listService
         self.authService = authService
 
         // Check if user is already authenticated
@@ -43,6 +47,7 @@ final class NebRatingsStore {
             isAuthenticated = true
             Task {
                 await loadUserProfile()
+                await loadUserLists()
             }
         } else {
             // Development-only auto-sign-in
@@ -87,6 +92,162 @@ final class NebRatingsStore {
     func signIn(userID: String) async {
         isAuthenticated = true
         await loadUserProfile()
+        await loadUserLists()
+    }
+    
+    func loadUserLists() async {
+        guard let userID = authService.getCurrentUserID() else {
+            showLists = []
+            return
+        }
+        
+        do {
+            var fetchedLists = try await listService.fetchLists(for: userID)
+            
+            // If no lists exist, create default "To Watch" list
+            if fetchedLists.isEmpty {
+                let defaultList = ShowList(name: "To Watch", isDefault: true)
+                try await listService.createList(defaultList, for: userID)
+                fetchedLists = [defaultList]
+            } else {
+                // Ensure default list exists
+                let hasDefault = fetchedLists.contains { $0.isDefault }
+                if !hasDefault {
+                    let defaultList = ShowList(name: "To Watch", isDefault: true)
+                    try await listService.createList(defaultList, for: userID)
+                    fetchedLists.insert(defaultList, at: 0)
+                }
+            }
+            
+            // Sort: default list first, then by creation date (newest first)
+            fetchedLists.sort { list1, list2 in
+                if list1.isDefault && !list2.isDefault {
+                    return true
+                }
+                if !list1.isDefault && list2.isDefault {
+                    return false
+                }
+                return list1.createdAt > list2.createdAt
+            }
+            
+            showLists = fetchedLists
+        } catch {
+            print("❌ Error loading lists: \(error.localizedDescription)")
+            // If error, initialize with default list locally
+            if showLists.isEmpty {
+                let defaultList = ShowList(name: "To Watch", isDefault: true)
+                showLists = [defaultList]
+            }
+        }
+    }
+    
+    func createList(name: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            print("⚠️ Cannot create list: no authenticated user")
+            return
+        }
+        
+        let newList = ShowList(name: name)
+        
+        do {
+            try await listService.createList(newList, for: userID)
+            showLists.append(newList)
+            
+            // Sort: default list first, then by creation date (newest first)
+            showLists.sort { list1, list2 in
+                if list1.isDefault && !list2.isDefault {
+                    return true
+                }
+                if !list1.isDefault && list2.isDefault {
+                    return false
+                }
+                return list1.createdAt > list2.createdAt
+            }
+        } catch {
+            print("❌ Error creating list: \(error.localizedDescription)")
+        }
+    }
+    
+    func deleteList(_ list: ShowList) async {
+        // Prevent deleting the default list
+        guard !list.isDefault else {
+            print("⚠️ Cannot delete default list")
+            return
+        }
+        
+        guard let userID = authService.getCurrentUserID() else {
+            print("⚠️ Cannot delete list: no authenticated user")
+            return
+        }
+        
+        do {
+            try await listService.deleteList(list, for: userID)
+            showLists.removeAll { $0.id == list.id }
+        } catch {
+            print("❌ Error deleting list: \(error.localizedDescription)")
+        }
+    }
+    
+    func addShowToList(_ showID: Int, listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            print("⚠️ Cannot add show to list: no authenticated user")
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            print("⚠️ List not found: \(listID)")
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Check if show is already in the list
+        guard !updatedList.showIDs.contains(showID) else {
+            print("⚠️ Show already in list")
+            return
+        }
+        
+        // Add show to list
+        updatedList.showIDs.append(showID)
+        showLists[listIndex] = updatedList
+        
+        // Update in Firebase
+        do {
+            try await listService.updateList(updatedList, for: userID)
+        } catch {
+            print("❌ Error updating list: \(error.localizedDescription)")
+            // Revert on error
+            updatedList.showIDs.removeAll { $0 == showID }
+            showLists[listIndex] = updatedList
+        }
+    }
+    
+    func removeShowFromList(_ showID: Int, listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            print("⚠️ Cannot remove show from list: no authenticated user")
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            print("⚠️ List not found: \(listID)")
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Remove show from list
+        updatedList.showIDs.removeAll { $0 == showID }
+        showLists[listIndex] = updatedList
+        
+        // Update in Firebase
+        do {
+            try await listService.updateList(updatedList, for: userID)
+        } catch {
+            print("❌ Error updating list: \(error.localizedDescription)")
+            // Revert on error
+            updatedList.showIDs.append(showID)
+            showLists[listIndex] = updatedList
+        }
     }
     
     func createProfileIfNeeded(userID: String, name: String) async throws {
@@ -109,6 +270,7 @@ final class NebRatingsStore {
             isAuthenticated = false
             currentUser = nil
             userReviews = []
+            showLists = []
         } catch {
             print("Error signing out: \(error)")
         }

@@ -35,6 +35,11 @@ struct ContentView: View {
                         .tabItem {
                             Label("Reviews", systemImage: "text.bubble")
                         }
+                    
+                    ListsView()
+                        .tabItem {
+                            Label("Lists", systemImage: "list.bullet.rectangle")
+                        }
 
                     ProfileView()
                         .tabItem {

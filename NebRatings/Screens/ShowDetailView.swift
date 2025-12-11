@@ -31,6 +31,8 @@ struct ShowDetailView: View {
     @State private var reviewHeights: [UUID: CGFloat] = [:]
     @State private var currentReviewPage: Int = 0
     @State private var expandedReview: Review?
+    @State private var showingListPicker = false
+    @State private var selectedListID: String?
     
     private var displayShow: Show {
         detailedShow ?? show
@@ -146,6 +148,19 @@ struct ShowDetailView: View {
             await loadShowDetails()
             await loadShowReviews()
             await loadRecommendations()
+            await store.loadUserLists()
+            // Set default selected list to "To Watch"
+            if selectedListID == nil {
+                selectedListID = store.showLists.first(where: { $0.isDefault })?.id ?? store.showLists.first?.id
+            }
+        }
+        .onChange(of: store.showLists) { _, _ in
+            // Update selectedListID if current selection no longer exists
+            if selectedListID != nil && !store.showLists.contains(where: { $0.id == selectedListID }) {
+                selectedListID = store.showLists.first(where: { $0.isDefault })?.id ?? store.showLists.first?.id
+            } else if selectedListID == nil && !store.showLists.isEmpty {
+                selectedListID = store.showLists.first(where: { $0.isDefault })?.id ?? store.showLists.first?.id
+            }
         }
     }
     
@@ -282,6 +297,12 @@ struct ShowDetailView: View {
                             }
                         }
                         .padding(.top, 4)
+                    }
+                    
+                    // Add to list button - compact inline version
+                    if !store.showLists.isEmpty {
+                        addToListButton
+                            .padding(.top, 4)
                     }
                 }
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
@@ -564,6 +585,94 @@ struct ShowDetailView: View {
         return calculateMaxCarouselHeight(for: reviewPages)
     }
 
+    private var addToListButton: some View {
+        // Get currently selected list (default to "To Watch")
+        let currentList = store.showLists.first(where: { $0.id == selectedListID }) ?? store.showLists.first(where: { $0.isDefault }) ?? store.showLists.first
+        let isInCurrentList = currentList?.showIDs.contains(displayShow.id) ?? false
+        
+        // Separate lists into those containing the show and those that don't
+        let listsContainingShow = store.showLists.filter { list in
+            list.showIDs.contains(displayShow.id)
+        }
+        let listsNotContainingShow = store.showLists.filter { list in
+            !list.showIDs.contains(displayShow.id)
+        }
+        
+        return HStack(spacing: 8) {
+            // Main button/menu
+            Menu {
+                // Section: Remove from lists (if show is in any lists)
+                if !listsContainingShow.isEmpty {
+                    ForEach(listsContainingShow) { list in
+                        Button(role: .destructive) {
+                            // Use a slight delay to allow menu to dismiss smoothly before state update
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
+                                await store.removeShowFromList(displayShow.id, listID: list.id)
+                            }
+                        } label: {
+                            Label("Remove from \"\(list.name)\"", systemImage: "minus.circle")
+                        }
+                    }
+                    
+                    if !listsNotContainingShow.isEmpty {
+                        Divider()
+                    }
+                }
+                
+                // Section: Add to lists (if there are lists the show isn't in)
+                if !listsNotContainingShow.isEmpty {
+                    ForEach(listsNotContainingShow) { list in
+                        Button {
+                            // Use a slight delay to allow menu to dismiss smoothly before state update
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
+                                selectedListID = list.id
+                                await store.addShowToList(displayShow.id, listID: list.id)
+                            }
+                        } label: {
+                            Label("Add to \"\(list.name)\"", systemImage: "plus.circle")
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: isInCurrentList 
+                          ? (currentList?.isDefault == true ? "bookmark.fill" : "list.bullet.rectangle")
+                          : "plus.circle")
+                        .foregroundStyle(.secondary)
+                        .font(.body)
+                    
+                    if let list = currentList {
+                        if isInCurrentList {
+                            Text("In \"\(list.name)\"")
+                                .font(.body)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+                        } else {
+                            Text("Add to \"\(list.name)\"")
+                                .font(.body)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+            
+            Spacer()
+            
+            // Show indicator if in multiple lists
+            if listsContainingShow.count > 1 {
+                Text("+\(listsContainingShow.count - 1)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: isInCurrentList)
+        .animation(.easeInOut(duration: 0.25), value: currentList?.id)
+        .animation(.easeInOut(duration: 0.25), value: listsContainingShow.count)
+    }
+    
     private var addReviewSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             if userHasReview, let existingReview = userReview {
