@@ -32,12 +32,8 @@ struct ListsView: View {
                         )
                     }
                 } else {
-                    ForEach(store.showLists) { list in
-                        NavigationLink {
-                            // TODO: List detail view
-                            ListDetailView(list: list)
-                                .environment(store)
-                        } label: {
+                    ForEach(store.showLists, id: \.id) { list in
+                        NavigationLink(value: list) {
                             HStack {
                                 Image(systemName: list.isDefault ? "bookmark.fill" : "list.bullet.rectangle")
                                     .foregroundStyle(list.isDefault ? .purple : .secondary)
@@ -96,8 +92,15 @@ struct ListsView: View {
             } message: { list in
                 Text("Are you sure you want to delete \"\(list.name)\"? This action cannot be undone.")
             }
+            .navigationDestination(for: ShowList.self) { list in
+                ListDetailView(list: list)
+                    .environment(store)
+            }
             .task {
-                await store.loadUserLists()
+                // Only load lists if empty to avoid unnecessary updates
+                if store.showLists.isEmpty {
+                    await store.loadUserLists()
+                }
             }
         }
     }
@@ -152,27 +155,27 @@ struct ListDetailView: View {
     let list: ShowList
     @Environment(NebRatingsStore.self) private var store
     
-    // Get the current list from the store to keep it in sync
-    private var currentList: ShowList? {
-        store.showLists.first { $0.id == list.id }
-    }
+    // Get the current list from the store to keep it in sync, but use @State to maintain stable reference
+    @State private var currentList: ShowList
+    @State private var hasLoaded = false
     
-    // Use the current list if available, otherwise fall back to the passed list
-    private var displayList: ShowList {
-        currentList ?? list
+    init(list: ShowList) {
+        self.list = list
+        // Initialize with the passed list
+        self._currentList = State(initialValue: list)
     }
     
     var body: some View {
         List {
             Section {
-                if displayList.showIDs.isEmpty {
+                if currentList.showIDs.isEmpty {
                     ContentUnavailableView(
                         "Empty List",
                         systemImage: "list.bullet.rectangle",
                         description: Text("Add shows to this list from the Discover tab.")
                     )
                 } else {
-                    ForEach(displayList.showIDs, id: \.self) { showID in
+                    ForEach(currentList.showIDs, id: \.self) { showID in
                         if let show = store.showCache[showID] {
                             NavigationLink(value: show) {
                                 ShowRow(show: show)
@@ -180,7 +183,11 @@ struct ListDetailView: View {
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Task {
-                                        await store.removeShowFromList(showID, listID: displayList.id)
+                                        await store.removeShowFromList(showID, listID: currentList.id)
+                                        // Update local state after removal
+                                        if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                            currentList = updatedList
+                                        }
                                     }
                                 } label: {
                                     Label("Remove", systemImage: "trash")
@@ -196,7 +203,11 @@ struct ListDetailView: View {
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Task {
-                                        await store.removeShowFromList(showID, listID: displayList.id)
+                                        await store.removeShowFromList(showID, listID: currentList.id)
+                                        // Update local state after removal
+                                        if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                            currentList = updatedList
+                                        }
                                     }
                                 } label: {
                                     Label("Remove", systemImage: "trash")
@@ -206,10 +217,14 @@ struct ListDetailView: View {
                     }
                     .onDelete { indexSet in
                         for index in indexSet {
-                            if index < displayList.showIDs.count {
-                                let showID = displayList.showIDs[index]
+                            if index < currentList.showIDs.count {
+                                let showID = currentList.showIDs[index]
                                 Task {
-                                    await store.removeShowFromList(showID, listID: displayList.id)
+                                    await store.removeShowFromList(showID, listID: currentList.id)
+                                    // Update local state after removal
+                                    if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                        currentList = updatedList
+                                    }
                                 }
                             }
                         }
@@ -218,14 +233,21 @@ struct ListDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(displayList.name)
+        .navigationTitle(currentList.name)
         .navigationBarTitleDisplayMode(.large)
         .navigationDestination(for: Show.self) { show in
             ShowDetailView(show: show)
         }
         .task {
-            await store.loadUserLists()
+            // Sync with store when view first appears (only once)
+            guard !hasLoaded else { return }
+            hasLoaded = true
+            if let updatedList = store.showLists.first(where: { $0.id == list.id }) {
+                currentList = updatedList
+            }
         }
+        // Don't use onChange or onAppear - they can disrupt navigation
+        // Instead, update explicitly when shows are added/removed via swipe actions
     }
 }
 
