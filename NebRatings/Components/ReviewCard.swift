@@ -34,7 +34,7 @@ struct ReviewCard: View {
     var useLighterBackground: Bool = false // For Reviews tab to add contrast
     @Environment(\.colorScheme) var colorScheme
     
-    private let fixedCardHeight: CGFloat = 180
+    private let fixedCardHeight: CGFloat = 200 // Increased by 20px
     private let commentLineLimit = 3
     
     private var backgroundShape: some View {
@@ -144,5 +144,133 @@ struct ReviewCard: View {
         .modifier(ConditionalTapGestureModifier(onTap: onTap))
     }
     
+}
+
+#Preview("Short Text - Light") {
+    let shortReview = Review(
+        showID: 123,
+        showTitle: "The Matrix",
+        showCategory: .movie,
+        author: "john_doe",
+        comment: "Amazing movie!",
+        nebRating: 4.5,
+        timestamp: Date()
+    )
+    
+    return ReviewCard(
+        review: shortReview,
+        showTitle: "The Matrix",
+        showCategory: .movie
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .preferredColorScheme(.light)
+}
+
+#Preview("Short Text - Dark") {
+    let shortReview = Review(
+        showID: 123,
+        showTitle: "The Matrix",
+        showCategory: .movie,
+        author: "john_doe",
+        comment: "Amazing movie!",
+        nebRating: 4.5,
+        timestamp: Date()
+    )
+    
+    return ReviewCard(
+        review: shortReview,
+        showTitle: "The Matrix",
+        showCategory: .movie
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Long Text - Light") {
+    let longReview = Review(
+        showID: 456,
+        showTitle: "The Lord of the Rings: The Fellowship of the Ring",
+        showCategory: .movie,
+        author: "jane_smith",
+        comment: "This is an absolutely fantastic film that completely exceeded my expectations. The cinematography is breathtaking, the story is engaging from start to finish, and the characters are well-developed. I especially loved the attention to detail in the world-building and how each scene contributes to the overall narrative. The acting performances are stellar, and the direction is masterful.",
+        nebRating: 5.0,
+        timestamp: Date()
+    )
+    
+    return ReviewCard(
+        review: longReview,
+        showTitle: "The Lord of the Rings: The Fellowship of the Ring",
+        showCategory: .movie
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .preferredColorScheme(.light)
+}
+
+#Preview("Long Text - Dark") {
+    let longReview = Review(
+        showID: 456,
+        showTitle: "The Lord of the Rings: The Fellowship of the Ring",
+        showCategory: .movie,
+        author: "jane_smith",
+        comment: "This is an absolutely fantastic film that completely exceeded my expectations. The cinematography is breathtaking, the story is engaging from start to finish, and the characters are well-developed. I especially loved the attention to detail in the world-building and how each scene contributes to the overall narrative. The acting performances are stellar, and the direction is masterful.",
+        nebRating: 5.0,
+        timestamp: Date()
+    )
+    
+    return ReviewCard(
+        review: longReview,
+        showTitle: "The Lord of the Rings: The Fellowship of the Ring",
+        showCategory: .movie
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Own Review - Light") {
+    let ownReview = Review(
+        showID: 789,
+        showTitle: "Inception",
+        showCategory: .movie,
+        author: "colewhaley",
+        comment: "Mind-bending masterpiece!",
+        nebRating: 5.0,
+        timestamp: Date()
+    )
+    
+    return ReviewCard(
+        review: ownReview,
+        showTitle: "Inception",
+        showCategory: .movie,
+        isOwnReview: true
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .preferredColorScheme(.light)
+}
+
+#Preview("Own Review - Dark") {
+    let ownReview = Review(
+        showID: 789,
+        showTitle: "Inception",
+        showCategory: .movie,
+        author: "colewhaley",
+        comment: "Mind-bending masterpiece!",
+        nebRating: 5.0,
+        timestamp: Date()
+    )
+    
+    return ReviewCard(
+        review: ownReview,
+        showTitle: "Inception",
+        showCategory: .movie,
+        isOwnReview: true
+    )
+    .padding()
+    .background(Color(.systemGroupedBackground))
+    .preferredColorScheme(.dark)
 }
 

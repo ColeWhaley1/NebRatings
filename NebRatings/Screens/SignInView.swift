@@ -129,6 +129,20 @@ struct SignInView: View {
                             .foregroundStyle(.secondary)
                     }
                     .disabled(isSigningIn || isSigningUp)
+                    
+                    // TEMPORARY: Quick login button for testing
+                    Divider()
+                        .padding(.vertical, 8)
+                    
+                    Button(action: quickLogin) {
+                        Label("Quick Login (Testing)", systemImage: "bolt.fill")
+                            .font(.subheadline.bold())
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                    .controlSize(.large)
+                    .disabled(isSigningIn || isSigningUp)
                 }
                 .padding(.horizontal, 40)
             }
@@ -201,6 +215,26 @@ struct SignInView: View {
             } catch {
                 errorMessage = "Sign up failed: \(error.localizedDescription)"
                 isSigningUp = false
+            }
+        }
+    }
+    
+    // TEMPORARY: Quick login function for testing
+    private func quickLogin() {
+        isSigningIn = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                let userID = try await store.authService.signIn(
+                    email: "colewhaley1@gmail.com",
+                    password: "nebratings"
+                )
+                await store.signIn(userID: userID)
+                isSigningIn = false
+            } catch {
+                errorMessage = "Quick login failed: \(error.localizedDescription)"
+                isSigningIn = false
             }
         }
     }

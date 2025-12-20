@@ -553,7 +553,7 @@ struct ShowDetailView: View {
     
     private func calculateCarouselHeight(for reviews: [Review]) -> CGFloat {
         // Fixed height: 180pt per review card + 8pt spacing between cards
-        let cardHeight: CGFloat = 180
+        let cardHeight: CGFloat = 200
         let spacing: CGFloat = 8
         let totalHeight = CGFloat(reviews.count) * cardHeight + CGFloat(max(0, reviews.count - 1)) * spacing
         return max(totalHeight, cardHeight)
@@ -562,7 +562,7 @@ struct ShowDetailView: View {
     private func calculateMaxCarouselHeight(for reviewPages: [[Review]]) -> CGFloat {
         // Fixed height: 180pt per review card + 8pt spacing between cards
         // Max 5 reviews per page
-        let cardHeight: CGFloat = 180
+        let cardHeight: CGFloat = 200
         let spacing: CGFloat = 8
         let maxReviewsPerPage = 5
         let totalHeight = CGFloat(maxReviewsPerPage) * cardHeight + CGFloat(maxReviewsPerPage - 1) * spacing
@@ -571,7 +571,7 @@ struct ShowDetailView: View {
     
     private func calculateActualCarouselHeight(for allReviews: [Review], reviewPages: [[Review]]) -> CGFloat {
         // Fixed height: 180pt per review card + 8pt spacing between cards
-        let cardHeight: CGFloat = 180
+        let cardHeight: CGFloat = 200
         let spacing: CGFloat = 8
         
         // If 5 or fewer reviews, calculate height based on actual number of reviews

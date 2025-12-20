@@ -12,19 +12,19 @@ struct NebRatingView: View {
     private let maxNebs = 5
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(1...maxNebs, id: \.self) { index in
-                let filled = index <= Int(round(rating))
-                Image(systemName: filled ? "moon.stars.fill" : "moon.stars")
-                    .foregroundStyle(filled ? Color.purple : Color(.tertiaryLabel))
-            }
-            Text(String(format: "%.1f", rating))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        .accessibilityLabel("\(rating, specifier: "%.1f") out of \(maxNebs) nebs")
+        Text(String(format: "%.1f", rating))
+            .font(.title2.bold()) // Larger and bolder for emphasis
+            .foregroundStyle(.primary) // Primary color instead of secondary for visibility
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.orange.opacity(0.2)) // Orange background to stand out
+                    .shadow(color: .black.opacity(0.15), radius: 3, x: 0, y: 2)
+            )
+            .accessibilityLabel("\(rating, specifier: "%.1f") out of \(maxNebs) nebs")
     }
 }
 
