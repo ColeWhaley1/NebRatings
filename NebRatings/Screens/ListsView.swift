@@ -182,11 +182,17 @@ struct ListDetailView: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
-                                    Task {
-                                        await store.removeShowFromList(showID, listID: currentList.id)
-                                        // Update local state after removal
-                                        if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                    Task { @MainActor in
+                                        // Optimistically update local state for smooth animation
+                                        if var updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                            updatedList.showIDs.removeAll { $0 == showID }
                                             currentList = updatedList
+                                        }
+                                        // Then sync with Firebase
+                                        await store.removeShowFromList(showID, listID: currentList.id)
+                                        // Final sync with store
+                                        if let finalList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                            currentList = finalList
                                         }
                                     }
                                 } label: {
@@ -194,9 +200,11 @@ struct ListDetailView: View {
                                 }
                             }
                         } else {
-                            // Placeholder for shows not yet loaded
+                            // Placeholder for shows not yet loaded - show loading state
                             HStack {
-                                Text("Show ID: \(showID)")
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                Text("Loading show...")
                                     .foregroundStyle(.secondary)
                                 Spacer()
                             }
@@ -216,16 +224,23 @@ struct ListDetailView: View {
                         }
                     }
                     .onDelete { indexSet in
-                        for index in indexSet {
-                            if index < currentList.showIDs.count {
-                                let showID = currentList.showIDs[index]
-                                Task {
-                                    await store.removeShowFromList(showID, listID: currentList.id)
-                                    // Update local state after removal
-                                    if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
-                                        currentList = updatedList
-                                    }
-                                }
+                        Task { @MainActor in
+                            // Optimistically update local state for smooth animation
+                            var updatedList = currentList
+                            let showIDsToRemove = indexSet.compactMap { index in
+                                index < currentList.showIDs.count ? currentList.showIDs[index] : nil
+                            }
+                            updatedList.showIDs.removeAll { showIDsToRemove.contains($0) }
+                            currentList = updatedList
+                            
+                            // Then sync with Firebase
+                            for showID in showIDsToRemove {
+                                await store.removeShowFromList(showID, listID: currentList.id)
+                            }
+                            
+                            // Final sync with store
+                            if let finalList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                currentList = finalList
                             }
                         }
                     }
@@ -245,9 +260,37 @@ struct ListDetailView: View {
             if let updatedList = store.showLists.first(where: { $0.id == list.id }) {
                 currentList = updatedList
             }
+            
+            // Fetch any missing shows from the list
+            await loadMissingShows()
         }
         // Don't use onChange or onAppear - they can disrupt navigation
         // Instead, update explicitly when shows are added/removed via swipe actions
+    }
+    
+    private func loadMissingShows() async {
+        // Find shows that aren't in the cache
+        let missingShowIDs = currentList.showIDs.filter { store.showCache[$0] == nil }
+        
+        // Fetch all missing shows in parallel
+        await withTaskGroup(of: Void.self) { group in
+            for showID in missingShowIDs {
+                group.addTask {
+                    // Try fetching as a movie first
+                    if await self.store.fetchShowDetails(id: showID, category: .movie) != nil {
+                        return // Success
+                    }
+                    
+                    // If movie failed, try as a series
+                    if await self.store.fetchShowDetails(id: showID, category: .series) != nil {
+                        return // Success
+                    }
+                    
+                    // If both failed, log it
+                    print("⚠️ Could not fetch show with ID: \(showID)")
+                }
+            }
+        }
     }
 }
 

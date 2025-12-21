@@ -150,6 +150,7 @@ struct TVDetailsResponse: Codable {
     let voteAverage: Double?
     let voteCount: Int?
     let genres: [TMDBGenre]?
+    let numberOfSeasons: Int?
     
     enum CodingKeys: String, CodingKey {
         case id, name, overview, tagline, genres
@@ -158,6 +159,7 @@ struct TVDetailsResponse: Codable {
         case backdropPath = "backdrop_path"
         case voteAverage = "vote_average"
         case voteCount = "vote_count"
+        case numberOfSeasons = "number_of_seasons"
     }
 }
 

@@ -512,24 +512,24 @@ final class NebRatingsStore {
         }
     }
     
-    func addReview(author: String, comment: String, rating: Double, to show: Show) {
+    func addReview(author: String, comment: String, rating: Double, to show: Show, season: Int? = nil) {
         // Use the show's ID directly - it's now the TMDB ID
         let showID = show.id
-        print("📝 Posting review with showID: \(showID)")
+        print("📝 Posting review with showID: \(showID), season: \(season?.description ?? "nil")")
         
-        // Safety check: if user already has a review, update it instead of creating duplicate
+        // Safety check: if user already has a review for the same season (or both nil), update it instead of creating duplicate
         // (This shouldn't happen if UI is working correctly, but serves as a safeguard)
         Task {
             do {
-                // Check local state first
+                // Check local state first - only match if season is also the same
                 let localExistingReview = reviews.first { review in
-                    review.showID == showID && review.author == author
+                    review.showID == showID && review.author == author && review.season == season
                 }
                 
                 if let existingReview = localExistingReview {
-                    // User already has a review - update it
-                    print("📝 User already has a review for this show, updating existing review")
-                    await updateReview(existingReview, comment: comment, rating: rating)
+                    // User already has a review for this show/season - update it
+                    print("📝 User already has a review for this show/season, updating existing review")
+                    await updateReview(existingReview, comment: comment, rating: rating, season: season)
                     return
                 }
                 
@@ -538,20 +538,21 @@ final class NebRatingsStore {
                     let existingReviewQuery = ReviewQuery(
                         showID: showID,
                         authorID: userID,
-                        limit: 1
+                        limit: 100  // Get all reviews to filter by season client-side
                     )
                     let existingReviews = try await reviewService.queryReviews(existingReviewQuery)
                     
-                    if let existingReview = existingReviews.first {
-                        // User already has a review - update it
-                        print("📝 User already has a review in Firestore, updating existing review")
-                        await updateReview(existingReview, comment: comment, rating: rating)
+                    // Filter by matching season (both nil means "entire show")
+                    if let existingReview = existingReviews.first(where: { $0.season == season }) {
+                        // User already has a review for this season - update it
+                        print("📝 User already has a review in Firestore for this season, updating existing review")
+                        await updateReview(existingReview, comment: comment, rating: rating, season: season)
                         return
                     }
                 }
                 
                 // No existing review - create a new one
-                let newReview = Review(showID: showID, showTitle: show.title, showCategory: show.category, author: author, comment: comment, nebRating: rating)
+                let newReview = Review(showID: showID, showTitle: show.title, showCategory: show.category, author: author, comment: comment, nebRating: rating, season: season)
                 
                 // Add to local state immediately for optimistic UI
                 if !reviews.contains(where: { $0.id == newReview.id }) {
@@ -580,7 +581,7 @@ final class NebRatingsStore {
         }
     }
     
-    private func updateReview(_ review: Review, comment: String, rating: Double) async {
+    private func updateReview(_ review: Review, comment: String, rating: Double, season: Int? = nil) async {
         let updatedReview = Review(
             id: review.id,
             showID: review.showID,
@@ -589,7 +590,8 @@ final class NebRatingsStore {
             author: review.author,
             comment: comment,
             nebRating: rating,
-            timestamp: review.timestamp // Keep original timestamp
+            timestamp: review.timestamp, // Keep original timestamp
+            season: season ?? review.season // Use provided season or keep existing
         )
         
         // Update in local state immediately for optimistic UI
@@ -621,7 +623,7 @@ final class NebRatingsStore {
     func updateReview(_ review: Review, comment: String, rating: Double) {
         print("📝 Updating review with ID: \(review.id)")
         
-        // Create updated review with new comment and rating
+        // Create updated review with new comment and rating, keeping season from original
         let updatedReview = Review(
             id: review.id,
             showID: review.showID,
@@ -630,7 +632,8 @@ final class NebRatingsStore {
             author: review.author,
             comment: comment.trimmingCharacters(in: .whitespacesAndNewlines),
             nebRating: rating,
-            timestamp: review.timestamp // Keep original timestamp
+            timestamp: review.timestamp, // Keep original timestamp
+            season: review.season // Keep original season
         )
         
         // Update in local state immediately for optimistic UI

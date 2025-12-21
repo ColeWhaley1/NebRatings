@@ -48,11 +48,33 @@ struct FirebaseListService: ListService {
         for document in snapshot.documents {
             let data = document.data()
             
-            guard let name = data["name"] as? String,
-                  let showIDs = data["showIDs"] as? [Int] else {
-                print("⚠️ Skipping list document \(document.documentID) - missing required fields")
+            guard let name = data["name"] as? String else {
+                print("⚠️ Skipping list document \(document.documentID) - missing name field")
                 continue
             }
+            
+            // Properly convert showIDs array - Firestore may store as NSNumber
+            let showIDs: [Int]
+            if let showIDsArray = data["showIDs"] as? [Int] {
+                showIDs = showIDsArray
+            } else if let showIDsArray = data["showIDs"] as? [NSNumber] {
+                showIDs = showIDsArray.map { $0.intValue }
+            } else if let showIDsArray = data["showIDs"] as? [Any] {
+                showIDs = showIDsArray.compactMap { value in
+                    if let intValue = value as? Int {
+                        return intValue
+                    } else if let nsNumber = value as? NSNumber {
+                        return nsNumber.intValue
+                    }
+                    return nil
+                }
+                print("⚠️ List \(document.documentID) showIDs converted from [Any] - found \(showIDs.count) valid IDs")
+            } else {
+                print("⚠️ Skipping list document \(document.documentID) - invalid showIDs field: \(data["showIDs"] ?? "nil")")
+                continue
+            }
+            
+            print("📋 Loaded list '\(name)' with \(showIDs.count) shows: \(showIDs)")
             
             let createdAt: Date
             if let timestamp = data["createdAt"] as? Timestamp {

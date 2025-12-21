@@ -23,7 +23,7 @@ struct ShowDetailView: View {
     let show: Show
 
     @State private var newComment = ""
-    @State private var newNebs: Double = 3
+    @State private var newNebs: Double = 5 // Default to 5 out of 10
     @State private var detailedShow: Show?
     @State private var isProvidersExpanded = false
     @FocusState private var isCommentFocused: Bool
@@ -32,7 +32,10 @@ struct ShowDetailView: View {
     @State private var currentReviewPage: Int = 0
     @State private var expandedReview: Review?
     @State private var showingListPicker = false
+    @State private var selectedListIDs: Set<String> = []
     @State private var selectedListID: String?
+    @State private var selectedSeason: Int? = nil // nil means "Entire Show" (for adding reviews)
+    @State private var filterSeason: Int? = nil // nil means "Entire Show" (for filtering reviews display, defaults to nil)
     
     private var displayShow: Show {
         detailedShow ?? show
@@ -41,13 +44,22 @@ struct ShowDetailView: View {
     private func reviews() -> [Review] {
         // Use displayShow.id to ensure we use the correct ID even if detailedShow was loaded
         let showID = displayShow.id
-        let filtered = store.reviews.filter { $0.showID == showID }
-        print("📊 Filtered reviews: \(filtered.count) reviews for showID: \(showID)")
+        var filtered = store.reviews.filter { $0.showID == showID }
+        
+        // Filter by season if a season filter is selected
+        if let filterSeason = filterSeason {
+            filtered = filtered.filter { $0.season == filterSeason }
+        } else {
+            // Default to showing reviews for entire show (season == nil)
+            filtered = filtered.filter { $0.season == nil }
+        }
+        
+        print("📊 Filtered reviews: \(filtered.count) reviews for showID: \(showID), season: \(filterSeason?.description ?? "nil (entire show)")")
         print("📊 Total reviews in store: \(store.reviews.count)")
         if filtered.isEmpty && !store.reviews.isEmpty {
             print("⚠️ No reviews matched! Sample review showIDs:")
             for review in store.reviews.prefix(3) {
-                print("  - Review showID: \(review.showID), title: \(review.showTitle)")
+                print("  - Review showID: \(review.showID), title: \(review.showTitle), season: \(review.season?.description ?? "nil")")
             }
         }
         
@@ -73,19 +85,19 @@ struct ShowDetailView: View {
         return sorted
     }
     
-    private var userHasReview: Bool {
+    private func userHasReviewForSeason(_ season: Int?) -> Bool {
         guard let currentUser = store.currentUser else { return false }
         let showID = displayShow.id
         return store.reviews.contains { review in
-            review.showID == showID && review.author == currentUser.name
+            review.showID == showID && review.author == currentUser.name && review.season == season
         }
     }
     
-    private var userReview: Review? {
+    private func userReviewForSeason(_ season: Int?) -> Review? {
         guard let currentUser = store.currentUser else { return nil }
         let showID = displayShow.id
         return store.reviews.first { review in
-            review.showID == showID && review.author == currentUser.name
+            review.showID == showID && review.author == currentUser.name && review.season == season
         }
     }
     
@@ -101,6 +113,57 @@ struct ShowDetailView: View {
 
     private var yearFormatted: String {
         return "\(displayShow.year)"
+    }
+    
+    private var communityAverage: Double {
+        let showID = displayShow.id
+        // Always only include reviews for the entire show (season == nil)
+        // This is the overall show average shown in the header
+        let entireShowReviews = store.reviews.filter { 
+            $0.showID == showID && $0.season == nil 
+        }
+        guard !entireShowReviews.isEmpty else { return 0 }
+        let total = entireShowReviews.reduce(0.0) { $0 + $1.nebRating }
+        return total / Double(entireShowReviews.count)
+    }
+    
+    private var communityReviewCount: Int {
+        let showID = displayShow.id
+        // Always only count reviews for the entire show (season == nil)
+        return store.reviews.filter { 
+            $0.showID == showID && $0.season == nil 
+        }.count
+    }
+    
+    private var averageRatingForFilteredSeason: Double? {
+        let showID = displayShow.id
+        var filteredReviews = store.reviews.filter { $0.showID == showID }
+        
+        // Filter by the selected season (or entire show if nil)
+        if let filterSeason = filterSeason {
+            filteredReviews = filteredReviews.filter { $0.season == filterSeason }
+        } else {
+            filteredReviews = filteredReviews.filter { $0.season == nil }
+        }
+        
+        guard !filteredReviews.isEmpty else { return nil }
+        let total = filteredReviews.reduce(0.0) { $0 + $1.nebRating }
+        return total / Double(filteredReviews.count)
+    }
+    
+    private func ratingEmoji(for rating: Double) -> String? {
+        // Ratings are on 0-10 scale
+        if rating >= 8.0 {
+            return "🔥" // 8.0 or better - Fire
+        } else if rating <= 4.0 {
+            return "🤮" // 4.0 or worse - Throw up
+        }
+        return nil // No emoji for values in between
+    }
+    
+    private func displayedRating(for rating: Double) -> Double {
+        // Ratings are stored and displayed on 0-10 scale directly
+        return rating
     }
 
     var body: some View {
@@ -152,6 +215,10 @@ struct ShowDetailView: View {
             // Set default selected list to "To Watch"
             if selectedListID == nil {
                 selectedListID = store.showLists.first(where: { $0.isDefault })?.id ?? store.showLists.first?.id
+            }
+            // Initialize selectedSeason to match filterSeason for series
+            if displayShow.category == .series && selectedSeason == nil {
+                selectedSeason = filterSeason
             }
         }
         .onChange(of: store.showLists) { _, _ in
@@ -211,9 +278,23 @@ struct ShowDetailView: View {
                             Image(systemName: "calendar")
                                 .foregroundStyle(.secondary)
                                 .font(.subheadline)
+                                .frame(width: 20, alignment: .leading)
                             Text(yearFormatted)
                                 .foregroundStyle(.primary)
                                 .font(.subheadline)
+                        }
+                        
+                        // Number of seasons (for series only)
+                        if displayShow.category == .series, let seasons = displayShow.numberOfSeasons, seasons > 0 {
+                            HStack(spacing: 6) {
+                                Image(systemName: "tv")
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline)
+                                    .frame(width: 20, alignment: .leading)
+                                Text("\(seasons) \(seasons == 1 ? "season" : "seasons")")
+                                    .foregroundStyle(.primary)
+                                    .font(.subheadline)
+                            }
                         }
                         
                         if !displayShow.watchProviders.isEmpty {
@@ -222,8 +303,12 @@ struct ShowDetailView: View {
                                 HStack(spacing: 6) {
                                     if let logoURL = provider.logoURL {
                                         AsyncImageView(urlString: logoURL)
-                                            .frame(width: 24, height: 24)
+                                            .frame(width: 20, height: 20)
                                             .clipShape(RoundedRectangle(cornerRadius: 4))
+                                    } else {
+                                        // Empty space to align with other icons
+                                        Color.clear
+                                            .frame(width: 20)
                                     }
                                     Text(provider.name)
                                         .font(.subheadline)
@@ -252,6 +337,7 @@ struct ShowDetailView: View {
                                         Image(systemName: "play.tv")
                                             .foregroundStyle(.secondary)
                                             .font(.subheadline)
+                                            .frame(width: 20, alignment: .leading)
                                         Text("Where to watch")
                                             .font(.subheadline)
                                             .foregroundStyle(.primary)
@@ -269,6 +355,7 @@ struct ShowDetailView: View {
                                 Image(systemName: "play.tv")
                                     .foregroundStyle(.secondary)
                                     .font(.subheadline)
+                                    .frame(width: 20, alignment: .leading)
                                 Text(displayShow.streamingService)
                                     .foregroundStyle(.primary)
                                     .font(.subheadline)
@@ -277,35 +364,77 @@ struct ShowDetailView: View {
                         
                         if let rating = displayShow.rating, rating > 0 {
                             HStack(spacing: 6) {
-                                Image(systemName: "star.fill")
-                                    .foregroundStyle(.yellow)
-                                    .font(.subheadline)
-                                Text(String(format: "%.1f", rating))
-                                    .foregroundStyle(.primary)
-                                    .font(.subheadline)
+                                HStack(spacing: 4) {
+                                    Text(String(format: "%.1f", rating))
+                                        .foregroundStyle(.primary)
+                                        .font(.subheadline.bold())
+                                    Text("/ 10")
+                                        .foregroundStyle(.secondary)
+                                        .font(.caption) // Smaller to de-emphasize
+                                }
+                                Text("Audience Score")
+                                    .foregroundStyle(.secondary)
+                                    .font(.subheadline.bold())
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                         }
-                    }
-                    
-                    if displayShow.averageNebs > 0 {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                NebRatingView(rating: displayShow.averageNebs)
-                                Text("\(displayShow.reviews.count) reviews")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.primary)
+                        
+                        // Community average rating
+                        if communityAverage > 0 {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    if let emoji = ratingEmoji(for: communityAverage) {
+                                        Text(emoji)
+                                            .font(.subheadline)
+                                    }
+                                    HStack(spacing: 4) {
+                                        Text(String(format: "%.1f", displayedRating(for: communityAverage)))
+                                            .foregroundStyle(.primary)
+                                            .font(.subheadline.bold())
+                                        Text("/ 10")
+                                            .foregroundStyle(.secondary)
+                                            .font(.caption) // Smaller to de-emphasize
+                                    }
+                                    Text("Neb Average")
+                                        .foregroundStyle(.secondary)
+                                        .font(.subheadline.bold())
+                                        .fixedSize(horizontal: false, vertical: true)
+                                    Text("(\(communityReviewCount))")
+                                        .foregroundStyle(.secondary)
+                                        .font(.subheadline)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                                
+                                // Discrepancy note if there's a significant difference
+                                if let audienceRating = displayShow.rating, audienceRating > 0 {
+                                    let nebRatingDisplay = displayedRating(for: communityAverage)
+                                    let discrepancy = nebRatingDisplay - audienceRating
+                                    
+                                    if abs(discrepancy) >= 1.0 {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: discrepancy > 0 ? "arrow.up" : "arrow.down")
+                                                .font(.caption2)
+                                                .foregroundStyle(discrepancy > 0 ? .green : .orange)
+                                            
+                                            Text(discrepancy > 0 
+                                                ? "Rated higher by Neb reviewers" 
+                                                : "Rated lower by Neb reviewers")
+                                                .font(.caption)
+                                                .foregroundStyle(discrepancy > 0 ? .green : .orange)
+                                        }
+                                    }
+                                }
                             }
                         }
-                        .padding(.top, 4)
-                    }
-                    
-                    // Add to list button - compact inline version
-                    if !store.showLists.isEmpty {
-                        addToListButton
-                            .padding(.top, 4)
+                        
+                        // Add to list button - below Neb average
+                        if !store.showLists.isEmpty {
+                            addToListButton
+                                .padding(.top, 8)
+                        }
                     }
                 }
-                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             }
             
             // Synopsis
@@ -445,6 +574,49 @@ struct ShowDetailView: View {
                 }
             }
             .padding(.bottom, 16)
+            
+            // Season filter (only for series with multiple seasons)
+            if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
+                HStack {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Filter by Season")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        Picker("Filter by Season", selection: $filterSeason) {
+                            Text("Entire Show").tag(nil as Int?)
+                            ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
+                                Text("Season \(seasonNum)").tag(seasonNum as Int?)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .foregroundStyle(.primary)
+                    }
+                    
+                    Spacer()
+                    
+                    // Average season rating
+                    if let avgRating = averageRatingForFilteredSeason, avgRating > 0 {
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text(String(format: "%.1f / 10", avgRating))
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                            Text("Average")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.bottom, 16)
+                .onChange(of: filterSeason) { oldValue, newValue in
+                    // Reset to first page when filter changes
+                    currentReviewPage = 0
+                    // When filtering changes, update the form's selected season to match
+                    // This ensures the form checks for the correct season
+                    if displayShow.category == .series {
+                        selectedSeason = newValue
+                    }
+                }
+            }
             
             if allReviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "bubble.left.and.exclamationmark", description: Text("Be the first to drop some nebs."))
@@ -586,96 +758,146 @@ struct ShowDetailView: View {
     }
 
     private var addToListButton: some View {
-        // Get currently selected list (default to "To Watch")
-        let currentList = store.showLists.first(where: { $0.id == selectedListID }) ?? store.showLists.first(where: { $0.isDefault }) ?? store.showLists.first
-        let isInCurrentList = currentList?.showIDs.contains(displayShow.id) ?? false
-        
-        // Separate lists into those containing the show and those that don't
+        // Get lists containing the show
         let listsContainingShow = store.showLists.filter { list in
             list.showIDs.contains(displayShow.id)
         }
         let listsNotContainingShow = store.showLists.filter { list in
             !list.showIDs.contains(displayShow.id)
         }
+        let allListsContainingShow = listsContainingShow.count
         
         return HStack(spacing: 8) {
-            // Main button/menu
-            Menu {
-                // Section: Remove from lists (if show is in any lists)
-                if !listsContainingShow.isEmpty {
-                    ForEach(listsContainingShow) { list in
-                        Button(role: .destructive) {
-                            // Use a slight delay to allow menu to dismiss smoothly before state update
-                            Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
-                                await store.removeShowFromList(displayShow.id, listID: list.id)
-                            }
-                        } label: {
-                            Label("Remove from \"\(list.name)\"", systemImage: "minus.circle")
-                        }
-                    }
-                    
-                    if !listsNotContainingShow.isEmpty {
-                        Divider()
-                    }
-                }
-                
-                // Section: Add to lists (if there are lists the show isn't in)
-                if !listsNotContainingShow.isEmpty {
-                    ForEach(listsNotContainingShow) { list in
-                        Button {
-                            // Use a slight delay to allow menu to dismiss smoothly before state update
-                            Task { @MainActor in
-                                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15 seconds
-                                selectedListID = list.id
-                                await store.addShowToList(displayShow.id, listID: list.id)
-                            }
-                        } label: {
-                            Label("Add to \"\(list.name)\"", systemImage: "plus.circle")
-                        }
-                    }
-                }
+            Button {
+                // Initialize selectedListIDs with current lists containing the show
+                selectedListIDs = Set(listsContainingShow.map { $0.id })
+                showingListPicker = true
             } label: {
                 HStack(spacing: 8) {
-                    Image(systemName: isInCurrentList 
-                          ? (currentList?.isDefault == true ? "bookmark.fill" : "list.bullet.rectangle")
+                    Image(systemName: allListsContainingShow > 0 
+                          ? (listsContainingShow.first(where: { $0.isDefault }) != nil ? "bookmark.fill" : "list.bullet.rectangle")
                           : "plus.circle")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.primary)
                         .font(.body)
+                        .symbolRenderingMode(.hierarchical)
+                        .frame(width: 20, height: 20)
                     
-                    if let list = currentList {
-                        if isInCurrentList {
+                    if allListsContainingShow > 0 {
+                        if allListsContainingShow == 1, let list = listsContainingShow.first {
                             Text("In \"\(list.name)\"")
                                 .font(.body)
                                 .fontWeight(.medium)
                                 .foregroundStyle(.primary)
+                                .lineLimit(1)
                         } else {
-                            Text("Add to \"\(list.name)\"")
+                            Text("In \(allListsContainingShow) lists")
                                 .font(.body)
                                 .fontWeight(.medium)
                                 .foregroundStyle(.primary)
+                                .lineLimit(1)
                         }
+                    } else {
+                        Text("Add to List")
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .sheet(isPresented: $showingListPicker) {
+            listPickerSheet
+        }
+    }
+    
+    private var listPickerSheet: some View {
+        NavigationStack {
+            List {
+                ForEach(store.showLists) { list in
+                    Button {
+                        if selectedListIDs.contains(list.id) {
+                            selectedListIDs.remove(list.id)
+                        } else {
+                            selectedListIDs.insert(list.id)
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: selectedListIDs.contains(list.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selectedListIDs.contains(list.id) ? .blue : .secondary)
+                                .font(.title3)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(list.name)
+                                    .font(.body)
+                                    .foregroundStyle(.primary)
+                                
+                                if list.isDefault {
+                                    Text("Default")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            
+                            Spacer()
+                            
+                            Image(systemName: list.isDefault ? "bookmark.fill" : "list.bullet.rectangle")
+                                .foregroundStyle(.secondary)
+                                .font(.subheadline)
+                        }
+                        .contentShape(Rectangle())
                     }
                 }
             }
-            
-            Spacer()
-            
-            // Show indicator if in multiple lists
-            if listsContainingShow.count > 1 {
-                Text("+\(listsContainingShow.count - 1)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            .listStyle(.insetGrouped)
+            .navigationTitle("Add to Lists")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        showingListPicker = false
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        Task { @MainActor in
+                            await updateShowLists()
+                        }
+                        showingListPicker = false
+                    }
+                }
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: isInCurrentList)
-        .animation(.easeInOut(duration: 0.25), value: currentList?.id)
-        .animation(.easeInOut(duration: 0.25), value: listsContainingShow.count)
+    }
+    
+    private func updateShowLists() async {
+        let currentListIDs = Set(store.showLists.filter { list in
+            list.showIDs.contains(displayShow.id)
+        }.map { $0.id })
+        
+        // Find lists to add
+        let listsToAdd = selectedListIDs.subtracting(currentListIDs)
+        for listID in listsToAdd {
+            await store.addShowToList(displayShow.id, listID: listID)
+        }
+        
+        // Find lists to remove
+        let listsToRemove = currentListIDs.subtracting(selectedListIDs)
+        for listID in listsToRemove {
+            await store.removeShowFromList(displayShow.id, listID: listID)
+        }
     }
     
     private var addReviewSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if userHasReview, let existingReview = userReview {
+        let seasonToCheck: Int? = displayShow.category == .series ? selectedSeason : nil
+        
+        return VStack(alignment: .leading, spacing: 12) {
+            // For series: Use selectedSeason from the form, which should be synced with filterSeason when filtering
+            // For movies: Always check for nil (entire show/movie)
+            // When filtering, the form's selected season should match the filter to check the correct season
+            if userHasReviewForSeason(seasonToCheck), let existingReview = userReviewForSeason(seasonToCheck) {
                 // User already has a review - show message to edit instead
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -691,7 +913,13 @@ struct ShowDetailView: View {
                         .foregroundStyle(.secondary)
                     
                     Button(action: {
-                        reviewToEdit = existingReview
+                        // Use the review from the currently filtered reviews if available
+                        // This ensures we edit the correct season-specific review
+                        if let reviewFromFilter = reviews().first(where: { $0.id == existingReview.id }) {
+                            reviewToEdit = reviewFromFilter
+                        } else {
+                            reviewToEdit = existingReview
+                        }
                     }) {
                         Label("Edit Your Review", systemImage: "pencil.line")
                             .frame(maxWidth: .infinity)
@@ -711,12 +939,34 @@ struct ShowDetailView: View {
                 Text("Drop Your Nebs")
                     .font(.title3.bold())
                     .foregroundStyle(.primary)
+                
+                // Season selection (only for series)
+                if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Review For")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        Picker("Review For", selection: $selectedSeason) {
+                            Text("Entire Show").tag(nil as Int?)
+                            ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
+                                Text("Season \(seasonNum)").tag(seasonNum as Int?)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .foregroundStyle(.primary)
+                    }
+                    .onChange(of: selectedSeason) { _, _ in
+                        // When season selection changes, the view will re-evaluate
+                        // whether to show the form or "already reviewed" message
+                    }
+                }
+                
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Rating")
                         .font(.subheadline.bold())
                         .foregroundStyle(.primary)
                     NebRatingView(rating: newNebs)
-                    Slider(value: $newNebs, in: 0...5, step: 0.5)
+                    Slider(value: $newNebs, in: 0...10, step: 1.0)
                         .tint(.purple)
                 }
                 VStack(alignment: .leading, spacing: 8) {
@@ -751,14 +1001,29 @@ struct ShowDetailView: View {
     private func addReview() {
         guard formIsValid else { return }
         let authorName = store.currentUser?.name ?? "Anonymous"
+        let seasonBeingReviewed = selectedSeason // Store the season before resetting form
+        
+        // Ratings are stored directly on 0-10 scale
         // Use displayShow to ensure we use the show with the correct ID
         // Both show and detailedShow should have the same ID if they have the same tmdbID
+        // selectedSeason is already Int? so we can pass it directly
         store.addReview(author: authorName,
                         comment: newComment.trimmingCharacters(in: .whitespacesAndNewlines),
                         rating: newNebs,
-                        to: displayShow)
+                        to: displayShow,
+                        season: selectedSeason)
         newComment = ""
-        newNebs = 3
+        newNebs = 5 // Reset to 5 out of 10
+        
+        // Keep the filter on the season that was just reviewed (don't reset to "Entire Show")
+        // For series, update filterSeason to match the reviewed season
+        if displayShow.category == .series {
+            filterSeason = seasonBeingReviewed
+            selectedSeason = seasonBeingReviewed // Keep selectedSeason in sync
+        } else {
+            selectedSeason = nil // For movies, reset to nil
+        }
+        
         // Dismiss keyboard
         isCommentFocused = false
     }

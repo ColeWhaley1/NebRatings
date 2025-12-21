@@ -126,6 +126,9 @@ struct FirebaseReviewService: ReviewService {
             // Parse id from document ID
             let id = UUID(uuidString: document.documentID) ?? UUID()
             
+            // Parse season (optional field)
+            let season: Int? = data["season"] as? Int
+            
             // Create Review model matching the struct exactly
             let review = Review(
                 id: id,
@@ -135,7 +138,8 @@ struct FirebaseReviewService: ReviewService {
                 author: author,
                 comment: comment,
                 nebRating: nebRating,
-                timestamp: timestamp
+                timestamp: timestamp,
+                season: season
             )
             
             reviews.append(review)
@@ -173,8 +177,8 @@ struct FirebaseReviewService: ReviewService {
         }
         
         // Map Review model to Firestore data structure - matching Review struct exactly
-        print("💾 Saving review with showID: \(review.showID)")
-        let reviewData: [String: Any] = [
+        print("💾 Saving review with showID: \(review.showID), season: \(review.season?.description ?? "nil")")
+        var reviewData: [String: Any] = [
             "showID": review.showID,
             "showTitle": review.showTitle,
             "showCategory": review.showCategory.rawValue,
@@ -184,6 +188,11 @@ struct FirebaseReviewService: ReviewService {
             "timestamp": Timestamp(date: review.timestamp),
             "userId": userID  // Keep userId for querying by author
         ]
+        
+        // Add season if it exists
+        if let season = review.season {
+            reviewData["season"] = season
+        }
         
         // Use review.id as the document ID to ensure uniqueness
         try await db.collection("review").document(review.id.uuidString).setData(reviewData)
@@ -200,8 +209,8 @@ struct FirebaseReviewService: ReviewService {
         }
         
         // Map Review model to Firestore data structure - matching Review struct exactly
-        print("💾 Updating review with showID: \(review.showID)")
-        let reviewData: [String: Any] = [
+        print("💾 Updating review with showID: \(review.showID), season: \(review.season?.description ?? "nil")")
+        var reviewData: [String: Any] = [
             "showID": review.showID,
             "showTitle": review.showTitle,
             "showCategory": review.showCategory.rawValue,
@@ -212,7 +221,13 @@ struct FirebaseReviewService: ReviewService {
             "userId": userID  // Keep userId for querying by author
         ]
         
+        // Add season if it exists
+        if let season = review.season {
+            reviewData["season"] = season
+        }
+        
         // Update the existing document
+        // Note: If season is nil, we don't include it in the update, preserving existing value or leaving it absent
         try await db.collection("review").document(review.id.uuidString).updateData(reviewData)
         print("✅ Review updated successfully")
     }

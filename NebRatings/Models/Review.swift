@@ -16,6 +16,7 @@ struct Review: Identifiable, Hashable {
     let comment: String
     let nebRating: Double
     let timestamp: Date
+    let season: Int?  // Optional season number (nil means review for entire show)
 
     init(id: UUID = UUID(),
          showID: Int,
@@ -24,7 +25,8 @@ struct Review: Identifiable, Hashable {
          author: String,
          comment: String,
          nebRating: Double,
-         timestamp: Date = .now) {
+         timestamp: Date = .now,
+         season: Int? = nil) {
         self.id = id
         self.showID = showID
         self.showTitle = showTitle
@@ -33,6 +35,7 @@ struct Review: Identifiable, Hashable {
         self.comment = comment
         self.nebRating = nebRating
         self.timestamp = timestamp
+        self.season = season
     }
 }
 

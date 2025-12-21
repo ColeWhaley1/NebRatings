@@ -42,6 +42,7 @@ struct Show: Identifiable, Hashable {
     let genres: [String]
     let rating: Double?
     let watchProviders: [WatchProviderInfo]
+    let numberOfSeasons: Int?
     var reviews: [Review]
 
     init(id: Int,
@@ -57,6 +58,7 @@ struct Show: Identifiable, Hashable {
          genres: [String] = [],
          rating: Double? = nil,
          watchProviders: [WatchProviderInfo] = [],
+         numberOfSeasons: Int? = nil,
          reviews: [Review] = []) {
         self.id = id
         self.title = title
@@ -71,6 +73,7 @@ struct Show: Identifiable, Hashable {
         self.genres = genres
         self.rating = rating
         self.watchProviders = watchProviders
+        self.numberOfSeasons = numberOfSeasons
         self.reviews = reviews
     }
     

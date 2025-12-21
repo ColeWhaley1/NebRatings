@@ -91,6 +91,16 @@ struct ReviewCard: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                    
+                    // Show season info if this is a season-specific review
+                    if let season = review.season {
+                        Text("S\(season)")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -114,7 +124,7 @@ struct ReviewCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
                 // Rating fixed to right
-                NebRatingView(rating: review.nebRating)
+                NebRatingView(rating: review.nebRating, isOwnReview: isOwnReview)
             }
             
             // Comment - ellipsis will appear automatically when truncated

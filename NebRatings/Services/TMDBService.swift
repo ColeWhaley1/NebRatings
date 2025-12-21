@@ -440,7 +440,8 @@ struct TMDBService: CatalogService {
             popularity: 0.0, // Details endpoint doesn't include popularity
             genres: genreNames,
             rating: details.voteAverage,
-            watchProviders: watchProviders
+            watchProviders: watchProviders,
+            numberOfSeasons: details.numberOfSeasons
         )
     }
     

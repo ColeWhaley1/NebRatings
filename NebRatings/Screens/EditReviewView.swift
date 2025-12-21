@@ -19,12 +19,13 @@ struct EditReviewView: View {
     init(review: Review) {
         self.review = review
         _comment = State(initialValue: review.comment)
+        // Ratings are stored on 0-10 scale directly
         _rating = State(initialValue: review.nebRating)
     }
     
     private var formIsValid: Bool {
         !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        rating >= 0 && rating <= 5
+        rating >= 0 && rating <= 10
     }
     
     var body: some View {
@@ -40,9 +41,9 @@ struct EditReviewView: View {
                             Text("0")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                            Slider(value: $rating, in: 0...5, step: 0.5)
+                            Slider(value: $rating, in: 0...10, step: 1.0)
                                 .tint(.purple)
-                            Text("5")
+                            Text("10")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -101,6 +102,7 @@ struct EditReviewView: View {
     
     private func saveReview() {
         guard formIsValid else { return }
+        // Ratings are stored directly on 0-10 scale
         store.updateReview(review, comment: comment, rating: rating)
         dismiss()
     }
