@@ -243,6 +243,19 @@ struct ProfileView: View {
                                                     .buttonStyle(.plain)
                                                 }
                                             }
+                                            
+                                            // Subtle message if less than 5 reviews on this page
+                                            if reviewPages[pageIndex].count < 5 {
+                                                Spacer()
+                                                    .frame(height: 20)
+                                                
+                                                Text("Keep reviewing to see more!")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                                    .padding(.top, 8)
+                                                
+                                                Spacer()
+                                            }
                                         }
                                         .padding(.top, 8)
                                         .padding(.bottom, 8)
@@ -262,15 +275,25 @@ struct ProfileView: View {
                     
                         // Page indicator
                         if reviewPages.count > 1 {
-                            HStack(spacing: 6) {
-                                ForEach(0..<reviewPages.count, id: \.self) { index in
-                                    Circle()
-                                        .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
-                                        .frame(width: 8, height: 8)
+                            if reviewPages.count > 10 {
+                                // Use number indicator for more than 50 reviews (10+ pages)
+                                Text("\(currentReviewPage + 1) of \(reviewPages.count)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.top, 4)
+                                    .padding(.bottom, 16)
+                            } else {
+                                // Use dots for 10 or fewer pages
+                                HStack(spacing: 6) {
+                                    ForEach(0..<reviewPages.count, id: \.self) { index in
+                                        Circle()
+                                            .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
+                                            .frame(width: 8, height: 8)
+                                    }
                                 }
+                                .padding(.top, 4)
+                                .padding(.bottom, 16)
                             }
-                            .padding(.top, 4)
-                            .padding(.bottom, 16)
                         }
                 }
                 .listRowSeparator(.hidden)
@@ -302,10 +325,10 @@ struct ProfileView: View {
     }
     
     private func calculateMaxCarouselHeight(for reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 200pt per review card + 8pt spacing between cards
+        // Fixed height: 220pt per review card + 8pt spacing between cards
         // listRowInsets add 8pt top/bottom padding per row (already included in spacing calculation)
         // Max 5 reviews per page
-        let cardHeight: CGFloat = 200
+        let cardHeight: CGFloat = 220
         let spacing: CGFloat = 8  // This is the spacing between cards (8pt from listRowInsets bottom + 8pt from next row's top)
         let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 16)
         let maxReviewsPerPage = 5
@@ -315,10 +338,10 @@ struct ProfileView: View {
     }
     
     private func calculateActualCarouselHeight(for allReviews: [Review], reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 200pt per review card + 8pt spacing between cards
+        // Fixed height: 220pt per review card + 8pt spacing between cards
         // listRowInsets add 8pt top/bottom padding per row, creating 8pt gaps between cards
         // Add extra buffer to prevent cutoff
-        let cardHeight: CGFloat = 200
+        let cardHeight: CGFloat = 220
         let spacing: CGFloat = 8
         let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 32)
         

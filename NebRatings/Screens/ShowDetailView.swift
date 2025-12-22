@@ -198,15 +198,19 @@ struct ShowDetailView: View {
                 }
                 .padding(.vertical, 20)
             }
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture()
+                    .onEnded { _ in
+                        isCommentFocused = false
+                    }
+            )
         }
         .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
         .navigationTitle(displayShow.title)
         .navigationBarTitleDisplayMode(.inline)
-        .onTapGesture {
-            // Dismiss keyboard when tapping outside text fields
-            isCommentFocused = false
-        }
+        .scrollDismissesKeyboard(.interactively)
         .task {
             await loadShowDetails()
             await loadShowReviews()
@@ -529,13 +533,48 @@ struct ShowDetailView: View {
             Spacer()
                 .frame(height: 4)
             
-            // Header with title
+            // Header with title and navigation arrows
             HStack {
                 Text("Neb Reviews")
                     .font(.title3.bold())
                     .foregroundStyle(.primary)
                 
                 Spacer()
+                
+                // Navigation arrows for carousel
+                if !allReviews.isEmpty && reviewPages.count > 1 {
+                    // Previous page arrow
+                    Button {
+                        if currentReviewPage > 0 {
+                            currentReviewPage -= 1
+                        }
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.title3)
+                            .foregroundStyle(currentReviewPage > 0 ? Color.primary : Color.gray.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                    }
+                    .disabled(currentReviewPage == 0)
+                    .buttonStyle(.plain)
+                    
+                    // Spacing between buttons
+                    Spacer()
+                        .frame(width: 8)
+                    
+                    // Next page arrow
+                    Button {
+                        if currentReviewPage < reviewPages.count - 1 {
+                            currentReviewPage += 1
+                        }
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.title3)
+                            .foregroundStyle(currentReviewPage < reviewPages.count - 1 ? Color.primary : Color.gray.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                    }
+                    .disabled(currentReviewPage >= reviewPages.count - 1)
+                    .buttonStyle(.plain)
+                }
             }
             
             // Season filter (only for series with multiple seasons)
@@ -593,11 +632,31 @@ struct ShowDetailView: View {
                                             review: review,
                                             showCategory: review.showCategory,
                                             isOwnReview: isOwnReview,
-                                            onTap: nil
+                                            onTap: {
+                                                expandedReview = review
+                                            }
                                         )
                                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                            if isOwnReview {
+                                                Button {
+                                                    store.deleteReview(review)
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                        .symbolRenderingMode(.hierarchical)
+                                                }
+                                                .tint(Color.red.opacity(0.7))
+                                                
+                                                Button {
+                                                    reviewToEdit = review
+                                                } label: {
+                                                    Label("Edit", systemImage: "pencil.line")
+                                                }
+                                                .tint(Color.blue.opacity(0.7))
+                                            }
+                                        }
                                     }
                                 }
                                 .listStyle(.plain)
@@ -618,15 +677,25 @@ struct ShowDetailView: View {
                     
                     // Page indicator
                     if reviewPages.count > 1 {
-                        HStack(spacing: 6) {
-                            ForEach(0..<reviewPages.count, id: \.self) { index in
-                                Circle()
-                                    .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
-                                    .frame(width: 8, height: 8)
+                        if reviewPages.count > 10 {
+                            // Use number indicator for more than 50 reviews (10+ pages)
+                            Text("\(currentReviewPage + 1) of \(reviewPages.count)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 4)
+                                .padding(.bottom, 16)
+                        } else {
+                            // Use dots for 10 or fewer pages
+                            HStack(spacing: 6) {
+                                ForEach(0..<reviewPages.count, id: \.self) { index in
+                                    Circle()
+                                        .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
+                                        .frame(width: 8, height: 8)
+                                }
                             }
+                            .padding(.top, 4)
+                            .padding(.bottom, 16)
                         }
-                        .padding(.top, 4)
-                        .padding(.bottom, 16)
                     }
                 }
             }
@@ -667,10 +736,10 @@ struct ShowDetailView: View {
     }
     
     private func calculateMaxCarouselHeight(for reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 200pt per review card + 8pt spacing between cards
+        // Fixed height: 220pt per review card + 8pt spacing between cards
         // listRowInsets add 8pt top/bottom padding per row (already included in spacing calculation)
         // Max 5 reviews per page
-        let cardHeight: CGFloat = 200
+        let cardHeight: CGFloat = 220
         let spacing: CGFloat = 8  // This is the spacing between cards (8pt from listRowInsets bottom + 8pt from next row's top)
         let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 32)
         let maxReviewsPerPage = 5
@@ -680,10 +749,10 @@ struct ShowDetailView: View {
     }
     
     private func calculateActualCarouselHeight(for allReviews: [Review], reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 200pt per review card + 8pt spacing between cards
+        // Fixed height: 220pt per review card + 8pt spacing between cards
         // listRowInsets add 8pt top/bottom padding per row, creating 8pt gaps between cards
         // Add extra buffer to prevent cutoff
-        let cardHeight: CGFloat = 200
+        let cardHeight: CGFloat = 220
         let spacing: CGFloat = 8
         let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 32)
         
@@ -907,64 +976,95 @@ struct ShowDetailView: View {
                 )
             } else {
                 // User doesn't have a review - show the form
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Drop Your Nebs")
-                        .font(.title3.bold())
-                        .foregroundStyle(.primary)
-                    
-                    // Show what season is being reviewed (only for series)
-                    if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
-                        HStack(spacing: 8) {
-                            Text("Reviewing:")
-                                .font(.subheadline)
-                                .foregroundStyle(.primary)
-                            
-                            Picker("Review Season", selection: $filterSeason) {
-                                Text("Entire Show").tag(nil as Int?)
-                                ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
-                                    Text("Season \(seasonNum)").tag(seasonNum as Int?)
-                                }
-                            }
-                            .pickerStyle(.menu)
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Drop Your Nebs")
+                            .font(.title3.bold())
                             .foregroundStyle(.primary)
-                            .padding(.leading, 0)
-                        }
-                        .onChange(of: filterSeason) { oldValue, newValue in
-                            // Reset to first page when filter changes
-                            currentReviewPage = 0
+                        
+                        // Show what season is being reviewed (only for series)
+                        if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
+                            HStack(spacing: 8) {
+                                Text("Reviewing:")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                
+                                Picker("Review Season", selection: $filterSeason) {
+                                    Text("Entire Show").tag(nil as Int?)
+                                    ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
+                                        Text("Season \(seasonNum)").tag(seasonNum as Int?)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .foregroundStyle(.primary)
+                                .padding(.leading, 0)
+                            }
+                            .onChange(of: filterSeason) { oldValue, newValue in
+                                // Reset to first page when filter changes
+                                currentReviewPage = 0
+                            }
                         }
                     }
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Rating")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        Slider(value: $newNebs, in: 0...10, step: 0.1)
+                            .tint(.purple)
+                        
+                        HStack {
+                            Button(action: {
+                                newNebs = max(0, newNebs - 0.1)
+                            }) {
+                                Image(systemName: "minus.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                                    .opacity(colorScheme == .dark ? 0.2 : 0.1)
+                            }
+                            .buttonStyle(.plain)
+                            
+                            Spacer()
+                            
+                            NebRatingView(rating: newNebs)
+                            
+                            Spacer()
+                            
+                            Button(action: {
+                                newNebs = min(10, newNebs + 0.1)
+                            }) {
+                                Image(systemName: "plus.circle.fill")
+                                    .font(.title2)
+                                    .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                                    .opacity(colorScheme == .dark ? 0.2 : 0.1)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Comment")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.primary)
+                        TextEditor(text: $newComment)
+                            .frame(minHeight: 120)
+                            .scrollContentBackground(.hidden)
+                            .background(Color(.systemBackground))
+                            .foregroundColor(.primary)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
+                            .contentMargins(4.0)
+                            .focused($isCommentFocused)
+                    }
+                    
+                    Button(action: addReview) {
+                        Label("Post Review", systemImage: "paperplane.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+                    .disabled(!formIsValid)
                 }
-                
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Rating")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.primary)
-                    NebRatingView(rating: newNebs)
-                    Slider(value: $newNebs, in: 0...10, step: 1.0)
-                        .tint(.purple)
-                }
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Comment")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.primary)
-                    TextEditor(text: $newComment)
-                        .frame(minHeight: 120)
-                        .scrollContentBackground(.hidden)
-                        .background(Color(.systemBackground))
-                        .foregroundColor(.primary)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
-                        .contentMargins(4.0)
-                        .focused($isCommentFocused)
-                }
-                Button(action: addReview) {
-                    Label("Post Review", systemImage: "paperplane.fill")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.purple)
-                .disabled(!formIsValid)
             }
         }
     }
@@ -1073,6 +1173,100 @@ struct ShowDetailView: View {
     
     // Sort by timestamp (newest first)
     store.reviews = reviews.sorted { $0.timestamp > $1.timestamp }
+    
+    return NavigationStack {
+        ShowDetailView(show: show)
+            .environment(store)
+    }
+}
+
+#Preview("Long Text Reviews") {
+    let store = NebRatingsStore()
+    let show = Show(
+        id: 999999,
+        title: "Test Show - Long Reviews",
+        category: .movie,
+        year: 2024,
+        synopsis: "A test show to demonstrate review text overflow handling.",
+        tagline: "Testing overflow scenarios",
+        streamingService: "Test Streaming"
+    )
+    
+    // Create reviews with very long text
+    let longText = """
+    This is an extremely long review comment that should test how the review card handles text overflow. 
+    The comment contains multiple sentences and paragraphs to ensure that the text truncation and ellipsis 
+    work correctly. This review is intentionally verbose to push the boundaries of the UI design and ensure 
+    that no matter how much text a user writes, the layout remains clean and readable. The review card should 
+    properly handle this overflow scenario by truncating the text and showing an ellipsis when necessary.
+    Additionally, this long text will help verify that the card height remains consistent and that there are 
+    no layout issues when dealing with extensive user-generated content. We want to make sure that even with 
+    very long reviews, the overall design maintains its aesthetic appeal and functionality.
+    """
+    
+    var reviews: [Review] = []
+    for i in 1...10 {
+        reviews.append(Review(
+            showID: show.id,
+            showTitle: show.title,
+            showCategory: show.category,
+            author: "User\(i)",
+            comment: i % 2 == 0 ? longText : "Short review.",
+            nebRating: Double.random(in: 1.0...10.0),
+            timestamp: Date().addingTimeInterval(TimeInterval(-i * 3600))
+        ))
+    }
+    
+    store.reviews = reviews
+    
+    return NavigationStack {
+        ShowDetailView(show: show)
+            .environment(store)
+    }
+}
+
+#Preview("151 Reviews - Pagination Test") {
+    let store = NebRatingsStore()
+    let show = Show(
+        id: 999998,
+        title: "Test Show - 151 Reviews",
+        category: .series,
+        year: 2024,
+        synopsis: "A test show with exactly 151 reviews to test pagination and the last page scenario.",
+        tagline: "Testing pagination",
+        streamingService: "Test Streaming",
+        numberOfSeasons: 5
+    )
+    
+    // Create exactly 151 reviews (30 pages of 5 = 150, plus 1 on page 31)
+    var reviews: [Review] = []
+    let authors = ["Alice", "Bob", "Charlie", "Diana", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"]
+    let comments = [
+        "Great show! Really enjoyed it.",
+        "Amazing performances from the cast.",
+        "The plot was engaging throughout.",
+        "Could have been better in places.",
+        "Highly recommend watching this!",
+        "Interesting concept but execution was lacking.",
+        "One of the best shows I've seen this year.",
+        "The writing could have been tighter.",
+        "Fantastic cinematography and direction.",
+        "Worth watching for the character development alone."
+    ]
+    
+    for i in 1...151 {
+        reviews.append(Review(
+            showID: show.id,
+            showTitle: show.title,
+            showCategory: show.category,
+            author: authors[i % authors.count] + "\(i)",
+            comment: comments[i % comments.count],
+            nebRating: Double.random(in: 1.0...10.0),
+            timestamp: Date().addingTimeInterval(TimeInterval(-i * 3600))
+        ))
+    }
+    
+    store.reviews = reviews
     
     return NavigationStack {
         ShowDetailView(show: show)

@@ -34,7 +34,7 @@ struct ReviewCard: View {
     var useLighterBackground: Bool = false // For Reviews tab to add contrast
     @Environment(\.colorScheme) var colorScheme
     
-    private let fixedCardHeight: CGFloat = 200 // Increased by 20px
+    private let fixedCardHeight: CGFloat = 220 // Increased for better spacing
     private let commentLineLimit = 3
     
     private var backgroundShape: some View {
@@ -137,7 +137,7 @@ struct ReviewCard: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             
             // Spacer to push timestamp to bottom
-            Spacer(minLength: 0)
+            Spacer()
             
             // Timestamp fixed to bottom left with padding
             Text(review.timestamp.formatted(date: .abbreviated, time: .shortened))

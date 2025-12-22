@@ -15,6 +15,7 @@ struct EditReviewView: View {
     @State private var comment: String
     @State private var rating: Double
     @FocusState private var isCommentFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
     
     init(review: Review) {
         self.review = review
@@ -25,69 +26,94 @@ struct EditReviewView: View {
     
     private var formIsValid: Bool {
         !comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        rating >= 0 && rating <= 10
+            rating >= 0 && rating <= 10
     }
     
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Rating")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                        
-                        HStack {
-                            Text("0")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Slider(value: $rating, in: 0...10, step: 1.0)
+            ZStack {
+                // Background tap area to dismiss keyboard
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isCommentFocused = false
+                    }
+                
+                Form {
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Rating")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                                
+                            Slider(value: $rating, in: 0 ... 10, step: 0.1)
                                 .tint(.purple)
-                            Text("10")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                
+                            HStack {
+                                Button(action: {
+                                    rating = max(0, rating - 0.1)
+                                }) {
+                                    Image(systemName: "minus.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                                        .opacity(colorScheme == .dark ? 0.3 : 0.2)
+                                }
+                                .buttonStyle(.plain)
+                                    
+                                Spacer()
+                                    
+                                NebRatingView(rating: rating)
+                                    
+                                Spacer()
+                                    
+                                Button(action: {
+                                    rating = min(10, rating + 0.1)
+                                }) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
+                                        .opacity(colorScheme == .dark ? 0.3 : 0.2)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.vertical, 8)
                         }
+                    }
                         
-                        HStack {
-                            Spacer()
-                            NebRatingView(rating: rating)
-                            Spacer()
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Your Review")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.primary)
+                                
+                            TextEditor(text: $comment)
+                                .frame(minHeight: 120)
+                                .focused($isCommentFocused)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(isCommentFocused ? Color.purple : Color.gray.opacity(0.3), lineWidth: 1)
+                                )
                         }
-                        .padding(.vertical, 8)
                     }
-                }
-                
-                Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Your Review")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
                         
-                        TextEditor(text: $comment)
-                            .frame(minHeight: 120)
-                            .focused($isCommentFocused)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(isCommentFocused ? Color.purple : Color.gray.opacity(0.3), lineWidth: 1)
-                            )
-                    }
-                }
-                
-                Section {
-                    Button(action: saveReview) {
-                        HStack {
-                            Spacer()
-                            Text("Save Changes")
-                                .font(.headline)
-                                .foregroundStyle(.white)
-                            Spacer()
+                    Section {
+                        Button(action: saveReview) {
+                            HStack {
+                                Spacer()
+                                Text("Save Changes")
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                Spacer()
+                            }
+                            .padding(.vertical, 12)
+                            .background(formIsValid ? Color.purple : Color.gray.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
                         }
-                        .padding(.vertical, 12)
-                        .background(formIsValid ? Color.purple : Color.gray.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                        .disabled(!formIsValid)
                     }
-                    .disabled(!formIsValid)
                 }
+                .scrollContentBackground(.hidden)
             }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Edit Review")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -99,7 +125,7 @@ struct EditReviewView: View {
             }
         }
     }
-    
+
     private func saveReview() {
         guard formIsValid else { return }
         // Ratings are stored directly on 0-10 scale
@@ -115,4 +141,3 @@ struct EditReviewView: View {
     return EditReviewView(review: review)
         .environment(store)
 }
-

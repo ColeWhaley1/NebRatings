@@ -32,9 +32,10 @@ struct ReviewsFeedView: View {
     @State private var reviewToEdit: Review?
     @State private var displayedReviewCount: Int = 5
     @State private var cachedReviews: [Review] = []
+    @State private var navigationPath = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             List {
                 filterSection
                 reviewsSection
@@ -95,7 +96,7 @@ struct ReviewsFeedView: View {
                 Text("Minimum rating: \(minimumRating, specifier: "%.1f") nebs")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Slider(value: $minimumRating, in: 0...5, step: 0.5)
+                Slider(value: $minimumRating, in: 0...10, step: 0.1)
                     .tint(.purple)
             }
         }
@@ -120,14 +121,15 @@ struct ReviewsFeedView: View {
                     let show = store.show(for: review)
                     let isOwnReview = store.currentUser?.name == review.author
                     if let show = show {
-                        NavigationLink(value: show) {
-                            ReviewCard(review: review,
-                                       showTitle: show.title,
-                                       showCategory: show.category,
-                                       isOwnReview: isOwnReview,
-                                       useLighterBackground: true)
-                        }
-                        .buttonStyle(.plain)
+                        ReviewCard(review: review,
+                                   showTitle: show.title,
+                                   showCategory: show.category,
+                                   isOwnReview: isOwnReview,
+                                   onTap: {
+                                       navigationPath.append(show)
+                                   },
+                                   useLighterBackground: true
+                                   )
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             if isOwnReview {
                                 Button {
