@@ -216,10 +216,6 @@ struct ShowDetailView: View {
             if selectedListID == nil {
                 selectedListID = store.showLists.first(where: { $0.isDefault })?.id ?? store.showLists.first?.id
             }
-            // Initialize selectedSeason to match filterSeason for series
-            if displayShow.category == .series && selectedSeason == nil {
-                selectedSeason = filterSeason
-            }
         }
         .onChange(of: store.showLists) { _, _ in
             // Update selectedListID if current selection no longer exists
@@ -533,55 +529,23 @@ struct ShowDetailView: View {
             Spacer()
                 .frame(height: 4)
             
-            // Header with title and navigation arrows
+            // Header with title
             HStack {
                 Text("Neb Reviews")
                     .font(.title3.bold())
                     .foregroundStyle(.primary)
                 
                 Spacer()
-                
-                if !allReviews.isEmpty && reviewPages.count > 1 {
-                    // Left arrow
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            if currentReviewPage > 0 {
-                                currentReviewPage -= 1
-                            }
-                        }
-                    }) {
-                        Image(systemName: "chevron.left")
-                            .font(.title3)
-                            .foregroundStyle(currentReviewPage > 0 ? Color.primary : Color.gray.opacity(0.3))
-                            .frame(width: 32, height: 32)
-                    }
-                    .disabled(currentReviewPage == 0)
-                    
-                    // Right arrow
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            if currentReviewPage < reviewPages.count - 1 {
-                                currentReviewPage += 1
-                            }
-                        }
-                    }) {
-                        Image(systemName: "chevron.right")
-                            .font(.title3)
-                            .foregroundStyle(currentReviewPage < reviewPages.count - 1 ? Color.primary : Color.gray.opacity(0.3))
-                            .frame(width: 32, height: 32)
-                    }
-                    .disabled(currentReviewPage >= reviewPages.count - 1)
-                }
             }
-            .padding(.bottom, 16)
             
             // Season filter (only for series with multiple seasons)
             if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
-                HStack {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Filter by Season")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Filter by Season")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.primary)
+                    
+                    HStack(spacing: 0) {
                         Picker("Filter by Season", selection: $filterSeason) {
                             Text("Entire Show").tag(nil as Int?)
                             ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
@@ -590,19 +554,15 @@ struct ShowDetailView: View {
                         }
                         .pickerStyle(.menu)
                         .foregroundStyle(.primary)
-                    }
-                    
-                    Spacer()
-                    
-                    // Average season rating
-                    if let avgRating = averageRatingForFilteredSeason, avgRating > 0 {
-                        VStack(alignment: .trailing, spacing: 4) {
+                        .padding(.leading, 0)
+                        
+                        Spacer()
+                        
+                        // Average season rating
+                        if let avgRating = averageRatingForFilteredSeason, avgRating > 0 {
                             Text(String(format: "%.1f / 10", avgRating))
                                 .font(.subheadline.bold())
                                 .foregroundStyle(.primary)
-                            Text("Average")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -610,11 +570,6 @@ struct ShowDetailView: View {
                 .onChange(of: filterSeason) { oldValue, newValue in
                     // Reset to first page when filter changes
                     currentReviewPage = 0
-                    // When filtering changes, update the form's selected season to match
-                    // This ensures the form checks for the correct season
-                    if displayShow.category == .series {
-                        selectedSeason = newValue
-                    }
                 }
             }
             
@@ -638,38 +593,18 @@ struct ShowDetailView: View {
                                             review: review,
                                             showCategory: review.showCategory,
                                             isOwnReview: isOwnReview,
-                                            onTap: {
-                                                expandedReview = review
-                                            }
+                                            onTap: nil
                                         )
-                                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
+                                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                                         .listRowBackground(Color.clear)
                                         .listRowSeparator(.hidden)
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                            if isOwnReview {
-                                                Button {
-                                                    store.deleteReview(review)
-                                                } label: {
-                                                    Label("Delete", systemImage: "trash")
-                                                        .symbolRenderingMode(.hierarchical)
-                                                }
-                                                .tint(Color.red.opacity(0.7))
-                                                
-                                                Button {
-                                                    reviewToEdit = review
-                                                } label: {
-                                                    Label("Edit", systemImage: "pencil.line")
-                                                }
-                                                .tint(Color.blue.opacity(0.7))
-                                            }
-                                        }
                                     }
                                 }
                                 .listStyle(.plain)
                                 .scrollContentBackground(.hidden)
                                 .scrollDisabled(true)
                                 .environment(\.defaultMinListRowHeight, 0)
-                                .frame(maxWidth: .infinity)
+                                .frame(maxWidth: .infinity, alignment: .topLeading)
                                 
                                 // Right spacing for gap between pages
                                 Spacer()
@@ -680,7 +615,6 @@ struct ShowDetailView: View {
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     .frame(height: calculateActualCarouselHeight(for: allReviews, reviewPages: reviewPages))
-                    .animation(.easeInOut(duration: 0.3), value: currentReviewPage)
                     
                     // Page indicator
                     if reviewPages.count > 1 {
@@ -692,6 +626,7 @@ struct ShowDetailView: View {
                             }
                         }
                         .padding(.top, 4)
+                        .padding(.bottom, 16)
                     }
                 }
             }
@@ -732,29 +667,34 @@ struct ShowDetailView: View {
     }
     
     private func calculateMaxCarouselHeight(for reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 180pt per review card + 8pt spacing between cards
+        // Fixed height: 200pt per review card + 8pt spacing between cards
+        // listRowInsets add 8pt top/bottom padding per row (already included in spacing calculation)
         // Max 5 reviews per page
         let cardHeight: CGFloat = 200
-        let spacing: CGFloat = 8
+        let spacing: CGFloat = 8  // This is the spacing between cards (8pt from listRowInsets bottom + 8pt from next row's top)
+        let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 32)
         let maxReviewsPerPage = 5
-        let totalHeight = CGFloat(maxReviewsPerPage) * cardHeight + CGFloat(maxReviewsPerPage - 1) * spacing
+        // Calculate: (5 cards * 200) + (4 gaps * 8) + buffer = 1000 + 32 + 48 = 1080
+        let totalHeight = CGFloat(maxReviewsPerPage) * cardHeight + CGFloat(maxReviewsPerPage - 1) * spacing + buffer
         return totalHeight
     }
     
     private func calculateActualCarouselHeight(for allReviews: [Review], reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 180pt per review card + 8pt spacing between cards
+        // Fixed height: 200pt per review card + 8pt spacing between cards
+        // listRowInsets add 8pt top/bottom padding per row, creating 8pt gaps between cards
+        // Add extra buffer to prevent cutoff
         let cardHeight: CGFloat = 200
         let spacing: CGFloat = 8
+        let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 32)
         
-        // If 5 or fewer reviews, calculate height based on actual number of reviews
-        if allReviews.count <= 5 {
-            let reviewCount = allReviews.count
-            let totalHeight = CGFloat(reviewCount) * cardHeight + CGFloat(max(0, reviewCount - 1)) * spacing
-            return totalHeight
+        // Calculate height for each page and use the maximum
+        var maxPageHeight: CGFloat = 0
+        for page in reviewPages {
+            let reviewCount = page.count
+            let pageHeight = CGFloat(reviewCount) * cardHeight + CGFloat(max(0, reviewCount - 1)) * spacing + buffer
+            maxPageHeight = max(maxPageHeight, pageHeight)
         }
-        
-        // If more than 5 reviews, use max height (for carousel with 5 reviews per page)
-        return calculateMaxCarouselHeight(for: reviewPages)
+        return maxPageHeight
     }
 
     private var addToListButton: some View {
@@ -891,41 +831,72 @@ struct ShowDetailView: View {
     }
     
     private var addReviewSection: some View {
-        let seasonToCheck: Int? = displayShow.category == .series ? selectedSeason : nil
+        // Use filterSeason to determine what season is being reviewed
+        // For series, use filterSeason; for movies, always nil (entire show)
+        let seasonToReview: Int? = displayShow.category == .series ? filterSeason : nil
         
         return VStack(alignment: .leading, spacing: 12) {
-            // For series: Use selectedSeason from the form, which should be synced with filterSeason when filtering
-            // For movies: Always check for nil (entire show/movie)
-            // When filtering, the form's selected season should match the filter to check the correct season
-            if userHasReviewForSeason(seasonToCheck), let existingReview = userReviewForSeason(seasonToCheck) {
-                // User already has a review - show message to edit instead
+            // Check if user already has a review for the season being reviewed
+            if userHasReviewForSeason(seasonToReview), let existingReview = userReviewForSeason(seasonToReview) {
+                // User already has a review - show message to edit instead, but still allow changing season
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Image(systemName: "info.circle")
-                            .foregroundStyle(.secondary)
-                        Text("You've already reviewed this")
-                            .font(.headline)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Drop Your Nebs")
+                            .font(.title3.bold())
                             .foregroundStyle(.primary)
-                    }
-                    
-                    Text("Swipe left on your review below to edit or delete it.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    
-                    Button(action: {
-                        // Use the review from the currently filtered reviews if available
-                        // This ensures we edit the correct season-specific review
-                        if let reviewFromFilter = reviews().first(where: { $0.id == existingReview.id }) {
-                            reviewToEdit = reviewFromFilter
-                        } else {
-                            reviewToEdit = existingReview
+                        
+                        // Show season selector (only for series)
+                        if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
+                            HStack(spacing: 8) {
+                                Text("Reviewing:")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.primary)
+                                
+                                Picker("Review Season", selection: $filterSeason) {
+                                    Text("Entire Show").tag(nil as Int?)
+                                    ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
+                                        Text("Season \(seasonNum)").tag(seasonNum as Int?)
+                                    }
+                                }
+                                .pickerStyle(.menu)
+                                .foregroundStyle(.primary)
+                                .padding(.leading, 0)
+                            }
+                            .onChange(of: filterSeason) { oldValue, newValue in
+                                // Reset to first page when filter changes
+                                currentReviewPage = 0
+                            }
                         }
-                    }) {
-                        Label("Edit Your Review", systemImage: "pencil.line")
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.bordered)
-                    .tint(.purple)
+                    
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(.secondary)
+                            Text("You've already reviewed this")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                        }
+                        
+                        Text("Swipe left on your review below to edit or delete it.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        
+                        Button(action: {
+                            // Use the review from the currently filtered reviews if available
+                            // This ensures we edit the correct season-specific review
+                            if let reviewFromFilter = reviews().first(where: { $0.id == existingReview.id }) {
+                                reviewToEdit = reviewFromFilter
+                            } else {
+                                reviewToEdit = existingReview
+                            }
+                        }) {
+                            Label("Edit Your Review", systemImage: "pencil.line")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.purple)
+                    }
                 }
                 .padding()
                 .background(
@@ -936,28 +907,32 @@ struct ShowDetailView: View {
                 )
             } else {
                 // User doesn't have a review - show the form
-                Text("Drop Your Nebs")
-                    .font(.title3.bold())
-                    .foregroundStyle(.primary)
-                
-                // Season selection (only for series)
-                if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Review For")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                        Picker("Review For", selection: $selectedSeason) {
-                            Text("Entire Show").tag(nil as Int?)
-                            ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
-                                Text("Season \(seasonNum)").tag(seasonNum as Int?)
-                            }
-                        }
-                        .pickerStyle(.menu)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Drop Your Nebs")
+                        .font(.title3.bold())
                         .foregroundStyle(.primary)
-                    }
-                    .onChange(of: selectedSeason) { _, _ in
-                        // When season selection changes, the view will re-evaluate
-                        // whether to show the form or "already reviewed" message
+                    
+                    // Show what season is being reviewed (only for series)
+                    if displayShow.category == .series, let numberOfSeasons = displayShow.numberOfSeasons, numberOfSeasons > 0 {
+                        HStack(spacing: 8) {
+                            Text("Reviewing:")
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                            
+                            Picker("Review Season", selection: $filterSeason) {
+                                Text("Entire Show").tag(nil as Int?)
+                                ForEach(1...numberOfSeasons, id: \.self) { seasonNum in
+                                    Text("Season \(seasonNum)").tag(seasonNum as Int?)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .foregroundStyle(.primary)
+                            .padding(.leading, 0)
+                        }
+                        .onChange(of: filterSeason) { oldValue, newValue in
+                            // Reset to first page when filter changes
+                            currentReviewPage = 0
+                        }
                     }
                 }
                 
@@ -1001,28 +976,19 @@ struct ShowDetailView: View {
     private func addReview() {
         guard formIsValid else { return }
         let authorName = store.currentUser?.name ?? "Anonymous"
-        let seasonBeingReviewed = selectedSeason // Store the season before resetting form
+        // Use filterSeason to determine what season is being reviewed
+        let seasonBeingReviewed: Int? = displayShow.category == .series ? filterSeason : nil
         
         // Ratings are stored directly on 0-10 scale
         // Use displayShow to ensure we use the show with the correct ID
-        // Both show and detailedShow should have the same ID if they have the same tmdbID
-        // selectedSeason is already Int? so we can pass it directly
         store.addReview(author: authorName,
                         comment: newComment.trimmingCharacters(in: .whitespacesAndNewlines),
                         rating: newNebs,
                         to: displayShow,
-                        season: selectedSeason)
+                        season: seasonBeingReviewed)
         newComment = ""
         newNebs = 5 // Reset to 5 out of 10
-        
-        // Keep the filter on the season that was just reviewed (don't reset to "Entire Show")
-        // For series, update filterSeason to match the reviewed season
-        if displayShow.category == .series {
-            filterSeason = seasonBeingReviewed
-            selectedSeason = seasonBeingReviewed // Keep selectedSeason in sync
-        } else {
-            selectedSeason = nil // For movies, reset to nil
-        }
+        // Filter stays the same (already set to the season being reviewed)
         
         // Dismiss keyboard
         isCommentFocused = false
