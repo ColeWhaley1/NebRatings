@@ -13,6 +13,7 @@ protocol AuthService {
     func signUp(email: String, password: String) async throws -> String // Returns user ID
     func signIn(email: String, password: String) async throws -> String // Returns user ID
     func signOut() async throws
+    func deleteAccount() async throws // Deletes the current authenticated user account
     func getCurrentUserID() -> String?
     func getCurrentUser() -> User?
 }
@@ -37,6 +38,16 @@ struct FirebaseAuthService: AuthService {
     func signOut() async throws {
         guard FirebaseApp.app() != nil else { return }
         try Auth.auth().signOut()
+    }
+    
+    func deleteAccount() async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(domain: "FirebaseAuth", code: -2, userInfo: [NSLocalizedDescriptionKey: "No authenticated user to delete"])
+        }
+        try await user.delete()
     }
     
     func getCurrentUserID() -> String? {
@@ -65,6 +76,10 @@ struct MockAuthService: AuthService {
     }
     
     func signOut() async throws {
+        // Mock implementation - no-op
+    }
+    
+    func deleteAccount() async throws {
         // Mock implementation - no-op
     }
     

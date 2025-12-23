@@ -56,7 +56,7 @@ struct EditReviewView: View {
                                     Image(systemName: "minus.circle.fill")
                                         .font(.title2)
                                         .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                                        .opacity(colorScheme == .dark ? 0.3 : 0.2)
+                                        .opacity(colorScheme == .dark ? 0.5 : 0.4)
                                 }
                                 .buttonStyle(.plain)
                                     
@@ -72,7 +72,7 @@ struct EditReviewView: View {
                                     Image(systemName: "plus.circle.fill")
                                         .font(.title2)
                                         .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                                        .opacity(colorScheme == .dark ? 0.3 : 0.2)
+                                        .opacity(colorScheme == .dark ? 0.5 : 0.4)
                                 }
                                 .buttonStyle(.plain)
                             }

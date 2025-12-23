@@ -119,7 +119,7 @@ struct ReviewsFeedView: View {
                 ForEach(Array(displayableReviews.prefix(displayedReviewCount))) { review in
                     // Add ID for stable animations
                     let show = store.show(for: review)
-                    let isOwnReview = store.currentUser?.name == review.author
+                    let isOwnReview = store.currentUser?.username == review.author
                     if let show = show {
                         ReviewCard(review: review,
                                    showTitle: show.title,

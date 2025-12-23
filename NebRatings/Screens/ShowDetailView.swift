@@ -64,7 +64,7 @@ struct ShowDetailView: View {
         }
         
         // Sort reviews: user's review first, then by timestamp (newest first)
-        let currentUserName = store.currentUser?.name
+        let currentUserName = store.currentUser?.username
         let sorted = filtered.sorted { review1, review2 in
             let isReview1Own = review1.author == currentUserName
             let isReview2Own = review2.author == currentUserName
@@ -89,7 +89,7 @@ struct ShowDetailView: View {
         guard let currentUser = store.currentUser else { return false }
         let showID = displayShow.id
         return store.reviews.contains { review in
-            review.showID == showID && review.author == currentUser.name && review.season == season
+            review.showID == showID && review.author == currentUser.username && review.season == season
         }
     }
     
@@ -97,7 +97,7 @@ struct ShowDetailView: View {
         guard let currentUser = store.currentUser else { return nil }
         let showID = displayShow.id
         return store.reviews.first { review in
-            review.showID == showID && review.author == currentUser.name && review.season == season
+            review.showID == showID && review.author == currentUser.username && review.season == season
         }
     }
     
@@ -627,7 +627,7 @@ struct ShowDetailView: View {
                                 // Content area with full-width cards
                                 List {
                                     ForEach(reviewPages[pageIndex]) { review in
-                                        let isOwnReview = store.currentUser?.name == review.author
+                                        let isOwnReview = store.currentUser?.username == review.author
                                         ReviewCard(
                                             review: review,
                                             showCategory: review.showCategory,
@@ -1020,7 +1020,7 @@ struct ShowDetailView: View {
                                 Image(systemName: "minus.circle.fill")
                                     .font(.title2)
                                     .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                                    .opacity(colorScheme == .dark ? 0.2 : 0.1)
+                                    .opacity(colorScheme == .dark ? 0.4 : 0.3)
                             }
                             .buttonStyle(.plain)
                             
@@ -1036,7 +1036,7 @@ struct ShowDetailView: View {
                                 Image(systemName: "plus.circle.fill")
                                     .font(.title2)
                                     .foregroundStyle(colorScheme == .dark ? Color.white : Color.black)
-                                    .opacity(colorScheme == .dark ? 0.2 : 0.1)
+                                    .opacity(colorScheme == .dark ? 0.4 : 0.3)
                             }
                             .buttonStyle(.plain)
                         }
@@ -1075,7 +1075,7 @@ struct ShowDetailView: View {
 
     private func addReview() {
         guard formIsValid else { return }
-        let authorName = store.currentUser?.name ?? "Anonymous"
+        let authorName = store.currentUser?.username ?? "Anonymous"
         // Use filterSeason to determine what season is being reviewed
         let seasonBeingReviewed: Int? = displayShow.category == .series ? filterSeason : nil
         

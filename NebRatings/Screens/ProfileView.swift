@@ -23,6 +23,7 @@ struct ProfileView: View {
     @State private var isEditingName = false
     @State private var editedName = ""
     @State private var isUpdatingName = false
+    @State private var nameError: String?
     @State private var currentReviewPage: Int = 0
     @State private var navigationPath = NavigationPath()
 
@@ -60,36 +61,45 @@ struct ProfileView: View {
             if let user = store.currentUser {
                 if isEditingName {
                     // Edit mode
-                    HStack {
-                        TextField("Name", text: $editedName)
-                            .font(.system(size: 22, weight: .bold, design: .default))
-                            .textFieldStyle(.plain)
-                            .disabled(isUpdatingName)
-                        
-                        if isUpdatingName {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                        } else {
-                            Button("Save") {
-                                Task {
-                                    await saveName()
-                                }
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            TextField("Username", text: $editedName)
+                                .font(.system(size: 22, weight: .bold, design: .default))
+                                .textFieldStyle(.plain)
+                                .disabled(isUpdatingName)
                             
-                            Button("Cancel") {
-                                cancelEdit()
+                            if isUpdatingName {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Button("Save") {
+                                    Task {
+                                        await saveName()
+                                    }
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .disabled(editedName.trimmingCharacters(in: .whitespaces).isEmpty || editedName.trimmingCharacters(in: .whitespaces) == store.currentUser?.username)
+                                
+                                Button("Cancel") {
+                                    cancelEdit()
+                                }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
                             }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
+                        }
+                        
+                        if let error = nameError {
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(.red)
                         }
                     }
                     .padding(.vertical, 4)
                 } else {
                     // Display mode
                     HStack {
-                    Text(user.name)
+                    Text(user.username)
                         .font(.system(size: 22, weight: .bold, design: .default))
                         Spacer()
                         Button {
@@ -110,7 +120,7 @@ struct ProfileView: View {
     
     private func startEditing() {
         if let user = store.currentUser {
-            editedName = user.name
+            editedName = user.username
             isEditingName = true
         }
     }
@@ -118,18 +128,36 @@ struct ProfileView: View {
     private func cancelEdit() {
         isEditingName = false
         editedName = ""
+        nameError = nil
     }
     
     private func saveName() async {
-        guard !editedName.trimmingCharacters(in: .whitespaces).isEmpty else {
+        let trimmedName = editedName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else {
+            return
+        }
+        
+        // Check if name hasn't changed
+        if trimmedName == store.currentUser?.username {
+            isEditingName = false
+            editedName = ""
+            nameError = nil
             return
         }
         
         isUpdatingName = true
-        await store.updateProfileName(editedName)
+        nameError = nil
+        
+        do {
+            try await store.updateProfileName(trimmedName)
+            isEditingName = false
+            editedName = ""
+            nameError = nil
+        } catch {
+            nameError = error.localizedDescription
+        }
+        
         isUpdatingName = false
-        isEditingName = false
-        editedName = ""
     }
 
     private var sortedReviews: [Review] {

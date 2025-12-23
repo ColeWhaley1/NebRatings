@@ -106,14 +106,14 @@ final class NebRatingsStore {
             
             // If no lists exist, create default "To Watch" list
             if fetchedLists.isEmpty {
-                let defaultList = ShowList(name: "To Watch", isDefault: true)
+                let defaultList = ShowList(name: "To Watch", isDefault: true, ownerID: userID)
                 try await listService.createList(defaultList, for: userID)
                 fetchedLists = [defaultList]
             } else {
                 // Ensure default list exists
                 let hasDefault = fetchedLists.contains { $0.isDefault }
                 if !hasDefault {
-                    let defaultList = ShowList(name: "To Watch", isDefault: true)
+                    let defaultList = ShowList(name: "To Watch", isDefault: true, ownerID: userID)
                     try await listService.createList(defaultList, for: userID)
                     fetchedLists.insert(defaultList, at: 0)
                 }
@@ -135,7 +135,7 @@ final class NebRatingsStore {
             print("❌ Error loading lists: \(error.localizedDescription)")
             // If error, initialize with default list locally
             if showLists.isEmpty {
-                let defaultList = ShowList(name: "To Watch", isDefault: true)
+                let defaultList = ShowList(name: "To Watch", isDefault: true, ownerID: userID)
                 showLists = [defaultList]
             }
         }
@@ -147,11 +147,15 @@ final class NebRatingsStore {
             return
         }
         
-        let newList = ShowList(name: name)
+        print("📝 Creating list '\(name)' for user: \(userID)")
+        let newList = ShowList(name: name, ownerID: userID)
+        print("📝 Created ShowList with id: \(newList.id), ownerID: \(newList.ownerID)")
         
         do {
             try await listService.createList(newList, for: userID)
+            print("✅ List created successfully in Firebase")
             showLists.append(newList)
+            print("✅ List added to local showLists array (count: \(showLists.count))")
             
             // Sort: default list first, then by creation date (newest first)
             showLists.sort { list1, list2 in
@@ -163,8 +167,10 @@ final class NebRatingsStore {
                 }
                 return list1.createdAt > list2.createdAt
             }
+            print("✅ Lists sorted (count: \(showLists.count))")
         } catch {
             print("❌ Error creating list: \(error.localizedDescription)")
+            print("❌ Error details: \(error)")
         }
     }
     
@@ -201,6 +207,12 @@ final class NebRatingsStore {
         
         var updatedList = showLists[listIndex]
         
+        // Check permissions
+        guard updatedList.canEdit(userID: userID) else {
+            print("⚠️ User does not have permission to edit this list")
+            return
+        }
+        
         // Check if show is already in the list
         guard !updatedList.showIDs.contains(showID) else {
             print("⚠️ Show already in list")
@@ -235,6 +247,12 @@ final class NebRatingsStore {
         
         var updatedList = showLists[listIndex]
         
+        // Check permissions
+        guard updatedList.canEdit(userID: userID) else {
+            print("⚠️ User does not have permission to edit this list")
+            return
+        }
+        
         // Remove show from list
         updatedList.showIDs.removeAll { $0 == showID }
         showLists[listIndex] = updatedList
@@ -247,6 +265,108 @@ final class NebRatingsStore {
             // Revert on error
             updatedList.showIDs.append(showID)
             showLists[listIndex] = updatedList
+        }
+    }
+    
+    func addContributor(_ contributorID: String, to listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            print("⚠️ Cannot add contributor: no authenticated user")
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            print("⚠️ List not found: \(listID)")
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Only owner can add contributors
+        guard updatedList.ownerID == userID else {
+            print("⚠️ Only the list owner can add contributors")
+            return
+        }
+        
+        // Don't add owner as contributor
+        guard contributorID != updatedList.ownerID else {
+            print("⚠️ Cannot add list owner as contributor")
+            return
+        }
+        
+        // Don't add if already a contributor
+        guard !updatedList.contributorIDs.contains(contributorID) else {
+            print("⚠️ User is already a contributor")
+            return
+        }
+        
+        // Add contributor locally
+        updatedList.contributorIDs.append(contributorID)
+        showLists[listIndex] = updatedList
+        
+        // Update in Firebase
+        do {
+            try await listService.addContributor(contributorID, to: listID, for: userID)
+            // Reload lists to ensure consistency
+            await loadUserLists()
+        } catch {
+            print("❌ Error adding contributor: \(error.localizedDescription)")
+            // Revert on error
+            updatedList.contributorIDs.removeAll { $0 == contributorID }
+            showLists[listIndex] = updatedList
+        }
+    }
+    
+    func removeContributor(_ contributorID: String, from listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            print("⚠️ Cannot remove contributor: no authenticated user")
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            print("⚠️ List not found: \(listID)")
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Only owner can remove contributors
+        guard updatedList.ownerID == userID else {
+            print("⚠️ Only the list owner can remove contributors")
+            return
+        }
+        
+        // Remove contributor locally
+        updatedList.contributorIDs.removeAll { $0 == contributorID }
+        showLists[listIndex] = updatedList
+        
+        // Update in Firebase
+        do {
+            try await listService.removeContributor(contributorID, from: listID, for: userID)
+            // Reload lists to ensure consistency
+            await loadUserLists()
+        } catch {
+            print("❌ Error removing contributor: \(error.localizedDescription)")
+            // Revert on error
+            updatedList.contributorIDs.append(contributorID)
+            showLists[listIndex] = updatedList
+        }
+    }
+    
+    func searchUsers(byName name: String) async -> [UserProfile] {
+        do {
+            return try await profileService.searchUsers(byName: name)
+        } catch {
+            print("❌ Error searching users: \(error.localizedDescription)")
+            return []
+        }
+    }
+    
+    func fetchProfile(userID: String) async -> UserProfile? {
+        do {
+            return try await profileService.fetchProfile(userID: userID)
+        } catch {
+            print("❌ Error fetching profile: \(error.localizedDescription)")
+            return nil
         }
     }
     
@@ -389,20 +509,15 @@ final class NebRatingsStore {
         }
     }
     
-    func updateProfileName(_ newName: String) async {
+    func updateProfileName(_ newName: String) async throws {
         guard let userID = authService.getCurrentUserID(),
               !newName.trimmingCharacters(in: .whitespaces).isEmpty else {
-            print("⚠️ Cannot update profile: invalid user ID or empty name")
-            return
+            throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID or empty name"])
         }
         
-        do {
-            try await profileService.updateProfile(userID: userID, name: newName.trimmingCharacters(in: .whitespaces))
-            // Reload profile to get updated data
-            await loadUserProfile()
-        } catch {
-            print("❌ Error updating profile name: \(error.localizedDescription)")
-        }
+        try await profileService.updateProfile(userID: userID, name: newName.trimmingCharacters(in: .whitespaces))
+        // Reload profile to get updated data
+        await loadUserProfile()
     }
 
     private func loadUserReviews(for userID: String) async {
@@ -562,7 +677,7 @@ final class NebRatingsStore {
                 }
                 
                 // Update user reviews if it's the current user
-                if let user = currentUser, author == user.name {
+                if let user = currentUser, author == user.username {
                     if !userReviews.contains(where: { $0.id == newReview.id }) {
                         var updatedUserReviews = userReviews
                         updatedUserReviews.insert(newReview, at: 0)
@@ -602,7 +717,7 @@ final class NebRatingsStore {
         }
         
         // Update user reviews if it's the current user
-        if let user = currentUser, review.author == user.name {
+        if let user = currentUser, review.author == user.username {
             if let index = userReviews.firstIndex(where: { $0.id == review.id }) {
                 var updatedUserReviews = userReviews
                 updatedUserReviews[index] = updatedReview
@@ -644,7 +759,7 @@ final class NebRatingsStore {
         }
         
         // Update user reviews if it's the current user
-        if let user = currentUser, review.author == user.name {
+        if let user = currentUser, review.author == user.username {
             if let index = userReviews.firstIndex(where: { $0.id == review.id }) {
                 var updatedUserReviews = userReviews
                 updatedUserReviews[index] = updatedReview
@@ -667,7 +782,7 @@ final class NebRatingsStore {
                     updatedReviews[index] = review
                     reviews = updatedReviews
                 }
-                if let user = currentUser, review.author == user.name {
+                if let user = currentUser, review.author == user.username {
                     if let index = userReviews.firstIndex(where: { $0.id == review.id }) {
                         var updatedUserReviews = userReviews
                         updatedUserReviews[index] = review
@@ -685,7 +800,7 @@ final class NebRatingsStore {
         reviews = reviews.filter { $0.id != review.id }
         
         // Remove from user reviews if it's the current user
-        if let user = currentUser, review.author == user.name {
+        if let user = currentUser, review.author == user.username {
             userReviews = userReviews.filter { $0.id != review.id }
         }
         
@@ -703,7 +818,7 @@ final class NebRatingsStore {
                 updatedReviews.append(review)
                 reviews = updatedReviews.sorted { $0.timestamp > $1.timestamp }
                 
-                if let user = currentUser, review.author == user.name {
+                if let user = currentUser, review.author == user.username {
                     var updatedUserReviews = userReviews
                     updatedUserReviews.append(review)
                     userReviews = updatedUserReviews.sorted { $0.timestamp > $1.timestamp }

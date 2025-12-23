@@ -15,6 +15,8 @@ protocol ListService {
     func fetchLists(for userID: String) async throws -> [ShowList]
     func updateList(_ list: ShowList, for userID: String) async throws
     func deleteList(_ list: ShowList, for userID: String) async throws
+    func addContributor(_ contributorID: String, to listID: String, for ownerID: String) async throws
+    func removeContributor(_ contributorID: String, from listID: String, for ownerID: String) async throws
 }
 
 struct FirebaseListService: ListService {
@@ -26,26 +28,72 @@ struct FirebaseListService: ListService {
     }
     
     func createList(_ list: ShowList, for userID: String) async throws {
+        // Ensure ownerID is set - use the list's ownerID if provided, otherwise use the userID parameter
+        let finalOwnerID = list.ownerID.isEmpty ? userID : list.ownerID
+        
         let listData: [String: Any] = [
             "name": list.name,
             "showIDs": list.showIDs,
             "createdAt": Timestamp(date: list.createdAt),
             "isDefault": list.isDefault,
-            "userId": userID
+            "ownerID": finalOwnerID,
+            "contributorIDs": list.contributorIDs
         ]
         
+        print("📝 FirebaseListService.createList - Saving list '\(list.name)' with id: \(list.id)")
+        print("📝 List data: name=\(list.name), ownerID=\(finalOwnerID), contributorIDs=\(list.contributorIDs)")
+        
         try await db.collection("list").document(list.id).setData(listData)
+        print("✅ FirebaseListService.createList - Successfully saved list '\(list.name)' to Firebase")
     }
     
     func fetchLists(for userID: String) async throws -> [ShowList] {
-        let query = db.collection("list")
+        // Fetch lists where user is owner (new format)
+        let ownerQuery = db.collection("list")
+            .whereField("ownerID", isEqualTo: userID)
+        
+        let ownerSnapshot = try await ownerQuery.getDocuments()
+        
+        // Fetch lists where user is owner (legacy format with userId field)
+        let legacyOwnerQuery = db.collection("list")
             .whereField("userId", isEqualTo: userID)
         
-        let snapshot = try await query.getDocuments()
+        let legacyOwnerSnapshot = try await legacyOwnerQuery.getDocuments()
+        
+        // Fetch lists where user is contributor
+        let contributorQuery = db.collection("list")
+            .whereField("contributorIDs", arrayContains: userID)
+        
+        let contributorSnapshot = try await contributorQuery.getDocuments()
+        
+        // Combine and deduplicate
+        var documentIDs = Set<String>()
+        var allDocuments: [QueryDocumentSnapshot] = []
+        
+        for document in ownerSnapshot.documents {
+            if !documentIDs.contains(document.documentID) {
+                documentIDs.insert(document.documentID)
+                allDocuments.append(document)
+            }
+        }
+        
+        for document in legacyOwnerSnapshot.documents {
+            if !documentIDs.contains(document.documentID) {
+                documentIDs.insert(document.documentID)
+                allDocuments.append(document)
+            }
+        }
+        
+        for document in contributorSnapshot.documents {
+            if !documentIDs.contains(document.documentID) {
+                documentIDs.insert(document.documentID)
+                allDocuments.append(document)
+            }
+        }
         
         var lists: [ShowList] = []
         
-        for document in snapshot.documents {
+        for document in allDocuments {
             let data = document.data()
             
             guard let name = data["name"] as? String else {
@@ -85,12 +133,42 @@ struct FirebaseListService: ListService {
             
             let isDefault = data["isDefault"] as? Bool ?? false
             
+            // Get ownerID - support both old format (userId) and new format (ownerID)
+            let ownerID: String
+            if let owner = data["ownerID"] as? String {
+                ownerID = owner
+            } else if let userId = data["userId"] as? String {
+                ownerID = userId // Legacy support
+                // Update the document to have ownerID for backwards compatibility
+                try? await db.collection("list").document(document.documentID).updateData([
+                    "ownerID": userId,
+                    "contributorIDs": []
+                ])
+            } else {
+                // No owner found - use current user and update the document
+                ownerID = userID
+                try? await db.collection("list").document(document.documentID).updateData([
+                    "ownerID": userID,
+                    "contributorIDs": []
+                ])
+            }
+            
+            // Get contributorIDs
+            let contributorIDs: [String]
+            if let contributors = data["contributorIDs"] as? [String] {
+                contributorIDs = contributors
+            } else {
+                contributorIDs = []
+            }
+            
             let list = ShowList(
                 id: document.documentID,
                 name: name,
                 showIDs: showIDs,
                 createdAt: createdAt,
-                isDefault: isDefault
+                isDefault: isDefault,
+                ownerID: ownerID,
+                contributorIDs: contributorIDs
             )
             
             lists.append(list)
@@ -102,12 +180,31 @@ struct FirebaseListService: ListService {
     func updateList(_ list: ShowList, for userID: String) async throws {
         try await db.collection("list").document(list.id).updateData([
             "name": list.name,
-            "showIDs": list.showIDs
+            "showIDs": list.showIDs,
+            "contributorIDs": list.contributorIDs
         ])
     }
     
     func deleteList(_ list: ShowList, for userID: String) async throws {
         try await db.collection("list").document(list.id).delete()
+    }
+    
+    func addContributor(_ contributorID: String, to listID: String, for ownerID: String) async throws {
+        let listRef = db.collection("list").document(listID)
+        
+        // Use arrayUnion to add contributor if not already present
+        try await listRef.updateData([
+            "contributorIDs": FieldValue.arrayUnion([contributorID])
+        ])
+    }
+    
+    func removeContributor(_ contributorID: String, from listID: String, for ownerID: String) async throws {
+        let listRef = db.collection("list").document(listID)
+        
+        // Use arrayRemove to remove contributor
+        try await listRef.updateData([
+            "contributorIDs": FieldValue.arrayRemove([contributorID])
+        ])
     }
 }
 

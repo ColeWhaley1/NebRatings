@@ -45,7 +45,7 @@ struct SettingsView: View {
                     Text("Signed in as")
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Text(user.name)
+                    Text(user.username)
                         .fontWeight(.medium)
                 }
             }

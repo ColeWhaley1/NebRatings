@@ -63,10 +63,10 @@ struct SignInView: View {
                 VStack(spacing: 16) {
                     if showSignUp {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Name")
+                            Text("Username")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(.primary)
-                            TextField("Enter your name", text: $name)
+                            TextField("Enter your username", text: $name)
                                 .textFieldStyle(.roundedBorder)
                                 .textContentType(.name)
                                 .autocapitalization(.words)
@@ -201,12 +201,26 @@ struct SignInView: View {
                 do {
                     try await store.createProfileIfNeeded(userID: userID, name: userName)
                 } catch {
-                    // If profile creation fails, show error and prevent sign-in
-                    // The user account was created but profile wasn't, so sign them out
-                    errorMessage = "Account created but profile setup failed: \(error.localizedDescription). Please try signing in again."
+                    // If profile creation fails, delete the Firebase Auth account that was just created
+                    // and show error to prevent sign-in
+                    if let nsError = error as NSError?, nsError.domain == "ProfileService" && nsError.code == -3 {
+                        // Username already taken error
+                        errorMessage = error.localizedDescription
+                    } else {
+                        errorMessage = "Account setup failed: \(error.localizedDescription). Please try again."
+                    }
                     print("❌ Profile creation failed during sign-up: \(error.localizedDescription)")
-                    // Sign out the user since profile creation failed
-                    try? await store.authService.signOut()
+                    
+                    // Delete the Firebase Auth account since profile creation failed
+                    do {
+                        try await store.authService.deleteAccount()
+                        print("✅ Deleted Firebase Auth account after profile creation failure")
+                    } catch {
+                        print("⚠️ Failed to delete Firebase Auth account after profile creation failure: \(error.localizedDescription)")
+                        // Still try to sign out as fallback
+                        try? await store.authService.signOut()
+                    }
+                    
                     isSigningUp = false
                     return
                 }

@@ -9,11 +9,11 @@ import Foundation
 
 struct UserProfile: Identifiable, Hashable {
     let id: String
-    let name: String
+    let username: String
 
     static let sample = UserProfile(
         id: "sample-user-001",
-        name: "Nebula Critic"
+        username: "Nebula Critic"
     )
 }
 
