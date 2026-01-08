@@ -154,7 +154,7 @@ struct ProfileView: View {
             editedName = ""
             nameError = nil
         } catch {
-            nameError = error.localizedDescription
+            nameError = formatProfileErrorMessage(error)
         }
         
         isUpdatingName = false
@@ -381,6 +381,42 @@ struct ProfileView: View {
             maxPageHeight = max(maxPageHeight, pageHeight)
         }
         return maxPageHeight
+    }
+    
+    private func formatProfileErrorMessage(_ error: Error) -> String {
+        let errorString = error.localizedDescription.lowercased()
+        
+        // Username already taken
+        if errorString.contains("username") && (errorString.contains("already taken") || errorString.contains("already exists") || errorString.contains("taken")) {
+            return "This username is already taken. Please choose a different one."
+        }
+        
+        // Empty name
+        if errorString.contains("name") && (errorString.contains("empty") || errorString.contains("cannot be empty") || errorString.contains("required")) {
+            return "Username cannot be empty"
+        }
+        
+        // Invalid name format
+        if errorString.contains("invalid") && errorString.contains("name") {
+            return "Username contains invalid characters. Please use only letters, numbers, and spaces."
+        }
+        
+        // Network errors
+        if errorString.contains("network") || 
+           errorString.contains("connection") || 
+           errorString.contains("internet") ||
+           errorString.contains("offline") ||
+           errorString.contains("timeout") {
+            return "Connection problem. Please check your internet and try again"
+        }
+        
+        // Permission errors
+        if errorString.contains("permission") || errorString.contains("unauthorized") {
+            return "You don't have permission to update your profile. Please try again"
+        }
+        
+        // Default fallback
+        return "Unable to update username. Please try again"
     }
     
 }

@@ -12,12 +12,23 @@ struct ListsView: View {
     @State private var showingCreateList = false
     @State private var newListName = ""
     @State private var listToDelete: ShowList?
+    @State private var showingOwnerWarning = false
+    @State private var listNotOwned: ShowList?
     
     private var showingDeleteAlert: Binding<Bool> {
         Binding(
             get: { listToDelete != nil },
             set: { if !$0 { listToDelete = nil } }
         )
+    }
+    
+    private var currentUserID: String? {
+        store.authService.getCurrentUserID()
+    }
+    
+    private func isOwner(of list: ShowList) -> Bool {
+        guard let userID = currentUserID else { return false }
+        return list.ownerID == userID
     }
     
     var body: some View {
@@ -57,7 +68,13 @@ struct ListsView: View {
                         if let index = indexSet.first, index < store.showLists.count {
                             let list = store.showLists[index]
                             if !list.isDefault {
-                                listToDelete = list
+                                // Check if user is the owner before allowing delete
+                                if isOwner(of: list) {
+                                    listToDelete = list
+                                } else {
+                                    listNotOwned = list
+                                    showingOwnerWarning = true
+                                }
                             }
                         }
                     }
@@ -92,6 +109,19 @@ struct ListsView: View {
             } message: { list in
                 Text("Are you sure you want to delete \"\(list.name)\"? This action cannot be undone.")
             }
+            .alert("Cannot Delete List", isPresented: $showingOwnerWarning, presenting: listNotOwned) { list in
+                Button("Yes", role: .destructive) {
+                    Task {
+                        await store.removeSelfAsContributor(from: list.id)
+                        listNotOwned = nil
+                    }
+                }
+                Button("No", role: .cancel) {
+                    listNotOwned = nil
+                }
+            } message: { list in
+                Text("You cannot delete \"\(list.name)\" because you are not the owner of this list. Would you like to remove yourself as a contributor?")
+            }
             .navigationDestination(for: ShowList.self) { list in
                 ListDetailView(list: list)
                     .environment(store)
@@ -110,7 +140,7 @@ struct ListsView: View {
             Form {
                 Section {
                     TextField("List Name", text: $newListName)
-                        .autocapitalization(.words)
+                        .autocapitalization(.none)
                 } header: {
                     Text("List Name")
                 } footer: {
@@ -165,6 +195,9 @@ struct ListDetailView: View {
     @State private var ownerProfile: UserProfile?
     @State private var contributorProfiles: [String: UserProfile] = [:]
     @State private var searchTask: Task<Void, Never>?
+    @State private var isEditingName = false
+    @State private var editedListName = ""
+    @State private var isUpdatingName = false
     
     private var currentUserID: String? {
         store.authService.getCurrentUserID()
@@ -183,6 +216,19 @@ struct ListDetailView: View {
     
     var body: some View {
         List {
+            // List name editing section (only show when editing)
+            if isEditingName {
+                Section {
+                    TextField("List Name", text: $editedListName)
+                        .font(.headline)
+                        .autocapitalization(.none)
+                } header: {
+                    Text("List Name")
+                } footer: {
+                    Text("Give your list a descriptive name to help organize your shows.")
+                }
+            }
+            
             // Collaborators section (show to both owners and contributors)
             Section("Collaborators") {
                     // Owner
@@ -251,7 +297,6 @@ struct ListDetailView: View {
                         }
                     }
                 }
-            }
             
             Section {
                 if currentList.showIDs.isEmpty {
@@ -334,8 +379,40 @@ struct ListDetailView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle(currentList.name)
+        .navigationTitle(isEditingName ? "" : currentList.name)
         .navigationBarTitleDisplayMode(.large)
+        .toolbar {
+            if isOwner {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if isEditingName {
+                        HStack {
+                            if isUpdatingName {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                            } else {
+                                Button("Save") {
+                                    Task {
+                                        await saveListName()
+                                    }
+                                }
+                                .disabled(editedListName.trimmingCharacters(in: .whitespaces).isEmpty || editedListName.trimmingCharacters(in: .whitespaces) == currentList.name)
+                                
+                                Button("Cancel") {
+                                    cancelEdit()
+                                }
+                            }
+                        }
+                    } else {
+                        Button {
+                            startEditing()
+                        } label: {
+                            Image(systemName: "pencil")
+                                .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+        }
         .navigationDestination(for: Show.self) { show in
             ShowDetailView(show: show)
         }
@@ -358,13 +435,45 @@ struct ListDetailView: View {
             // Update current list when store changes
             if let updatedList = store.showLists.first(where: { $0.id == list.id }) {
                 currentList = updatedList
-                Task {
-                    await loadListData()
+                // Only reload list data if not currently editing (to avoid disrupting edit flow)
+                if !isEditingName {
+                    Task {
+                        await loadListData()
+                    }
                 }
             }
         }
         // Don't use onChange or onAppear - they can disrupt navigation
         // Instead, update explicitly when shows are added/removed via swipe actions
+    }
+    
+    private func startEditing() {
+        editedListName = currentList.name
+        isEditingName = true
+    }
+    
+    private func cancelEdit() {
+        isEditingName = false
+        editedListName = ""
+        isUpdatingName = false
+    }
+    
+    private func saveListName() async {
+        let trimmedName = editedListName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else {
+            cancelEdit()
+            return
+        }
+        
+        isUpdatingName = true
+        await store.updateListName(currentList.id, newName: trimmedName)
+        isUpdatingName = false
+        cancelEdit()
+        
+        // Update currentList from store to reflect the change
+        if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+            currentList = updatedList
+        }
     }
     
     private func loadListData() async {
@@ -526,8 +635,7 @@ struct ListDetailView: View {
                         return // Success
                     }
                     
-                    // If both failed, log it
-                    print("⚠️ Could not fetch show with ID: \(showID)")
+                    // If both failed, skip it
                 }
             }
         }

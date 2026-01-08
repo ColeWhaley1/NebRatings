@@ -18,6 +18,7 @@ protocol ProfileService {
     func fetchReviews(for userID: String) async throws -> [Review]
     func searchUsers(byName name: String) async throws -> [UserProfile]
     func isUsernameAvailable(_ name: String, excludingUserID: String?) async throws -> Bool
+    func deleteProfile(userID: String) async throws
 }
 
 struct FirebaseProfileService: ProfileService {
@@ -118,11 +119,9 @@ struct FirebaseProfileService: ProfileService {
                 if let tmdbID = data["showTMDBID"] as? Int {
                     showID = tmdbID
                 } else {
-                    print("⚠️ Review \(document.documentID) has string showID but no tmdbID, skipping")
                     continue
                 }
             } else {
-                print("Warning: Skipping review document \(document.documentID) - missing showID")
                 continue
             }
             
@@ -130,7 +129,6 @@ struct FirebaseProfileService: ProfileService {
                   let author = data["author"] as? String,
                   let comment = data["comment"] as? String,
                   let nebRating = data["nebRating"] as? Double else {
-                print("Warning: Skipping review document \(document.documentID) - missing required fields")
                 continue
             }
             
@@ -154,7 +152,6 @@ struct FirebaseProfileService: ProfileService {
             } else {
                 // Fallback: default to movie for existing reviews without category
                 showCategory = .movie
-                print("⚠️ Review \(document.documentID) missing category, defaulting to movie")
             }
             
             // Create Review model matching the struct exactly
@@ -338,6 +335,14 @@ struct FirebaseProfileService: ProfileService {
         }
         
         return true
+    }
+    
+    func deleteProfile(userID: String) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "ProfileService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        
+        try await db.collection("profile").document(userID).delete()
     }
 }
 

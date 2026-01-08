@@ -24,6 +24,7 @@ protocol ReviewService {
     func submit(review: Review) async throws
     func update(review: Review) async throws
     func delete(review: Review) async throws
+    func deleteAllReviewsByUser(userID: String) async throws
 }
 
 struct FirebaseReviewService: ReviewService {
@@ -39,7 +40,6 @@ struct FirebaseReviewService: ReviewService {
         
         // Filter by showID if provided
         if let showID = query.showID {
-            print("🔍 Querying reviews for showID: \(showID)")
             firestoreQuery = firestoreQuery.whereField("showID", isEqualTo: showID)
         }
         
@@ -51,7 +51,6 @@ struct FirebaseReviewService: ReviewService {
         
         // Filter by minimum rating if provided (do this in Firestore)
         if let minRating = query.minimumRating {
-            print("🔍 Filtering by minimum rating in Firestore: \(minRating)")
             firestoreQuery = firestoreQuery.whereField("nebRating", isGreaterThanOrEqualTo: minRating)
         }
         
@@ -60,7 +59,6 @@ struct FirebaseReviewService: ReviewService {
         // If we have both category and minimumRating, we'll filter by category client-side instead
         let shouldFilterCategoryInFirestore = query.category != nil && query.minimumRating == nil
         if shouldFilterCategoryInFirestore {
-            print("🔍 Filtering by category in Firestore: \(query.category!.rawValue)")
             firestoreQuery = firestoreQuery.whereField("showCategory", isEqualTo: query.category!.rawValue)
         }
         
@@ -69,7 +67,6 @@ struct FirebaseReviewService: ReviewService {
         
         // Execute query
         let snapshot = try await firestoreQuery.getDocuments()
-        print("📊 Found \(snapshot.documents.count) review documents in Firestore")
         
         // Map Firestore documents to Review models
         var reviews: [Review] = []
@@ -87,11 +84,9 @@ struct FirebaseReviewService: ReviewService {
                 if let tmdbID = data["showTMDBID"] as? Int {
                     showID = tmdbID
                 } else {
-                    print("⚠️ Review \(document.documentID) has string showID but no tmdbID, skipping")
                     continue
                 }
             } else {
-                print("Warning: Skipping review document \(document.documentID) - missing showID")
                 continue
             }
             
@@ -99,7 +94,6 @@ struct FirebaseReviewService: ReviewService {
                   let author = data["author"] as? String,
                   let comment = data["comment"] as? String,
                   let nebRating = data["nebRating"] as? Double else {
-                print("Warning: Skipping review document \(document.documentID) - missing required fields")
                 continue
             }
             
@@ -111,7 +105,6 @@ struct FirebaseReviewService: ReviewService {
             } else {
                 // Fallback: default to movie for existing reviews without category
                 showCategory = .movie
-                print("⚠️ Review \(document.documentID) missing category, defaulting to movie")
             }
             
             // Parse timestamp
@@ -148,14 +141,12 @@ struct FirebaseReviewService: ReviewService {
         // Apply category filter client-side if we have both category and minimumRating
         // (to avoid Firestore compound query issues that require composite indexes)
         if let category = query.category, !shouldFilterCategoryInFirestore {
-            print("🔍 Filtering by category client-side: \(category.rawValue)")
             reviews = reviews.filter { $0.showCategory == category }
         }
         
         // Apply text search filter if provided (client-side since Firestore text search is limited)
         if let searchText = query.searchText, !searchText.isEmpty {
             let lowered = searchText.lowercased()
-            print("🔍 Filtering by search text client-side: \(searchText)")
             reviews = reviews.filter {
                 $0.comment.lowercased().contains(lowered) ||
                 $0.author.lowercased().contains(lowered) ||
@@ -163,7 +154,6 @@ struct FirebaseReviewService: ReviewService {
             }
         }
         
-        print("✅ Returning \(reviews.count) filtered reviews")
         return reviews
     }
 
@@ -177,7 +167,6 @@ struct FirebaseReviewService: ReviewService {
         }
         
         // Map Review model to Firestore data structure - matching Review struct exactly
-        print("💾 Saving review with showID: \(review.showID), season: \(review.season?.description ?? "nil")")
         var reviewData: [String: Any] = [
             "showID": review.showID,
             "showTitle": review.showTitle,
@@ -196,7 +185,6 @@ struct FirebaseReviewService: ReviewService {
         
         // Use review.id as the document ID to ensure uniqueness
         try await db.collection("review").document(review.id.uuidString).setData(reviewData)
-        print("✅ Review saved successfully")
     }
     
     func update(review: Review) async throws {
@@ -209,7 +197,6 @@ struct FirebaseReviewService: ReviewService {
         }
         
         // Map Review model to Firestore data structure - matching Review struct exactly
-        print("💾 Updating review with showID: \(review.showID), season: \(review.season?.description ?? "nil")")
         var reviewData: [String: Any] = [
             "showID": review.showID,
             "showTitle": review.showTitle,
@@ -229,7 +216,6 @@ struct FirebaseReviewService: ReviewService {
         // Update the existing document
         // Note: If season is nil, we don't include it in the update, preserving existing value or leaving it absent
         try await db.collection("review").document(review.id.uuidString).updateData(reviewData)
-        print("✅ Review updated successfully")
     }
     
     func delete(review: Review) async throws {
@@ -244,26 +230,49 @@ struct FirebaseReviewService: ReviewService {
         // Use review.id.uuidString as the document ID (this is how we store it)
         let documentRef = db.collection("review").document(review.id.uuidString)
         
-        print("🗑️ Attempting to delete review:")
-        print("   - Document ID: \(review.id.uuidString)")
-        print("   - ShowID (Int): \(review.showID)")
-        print("   - User ID: \(userID)")
-        print("   - Author: \(review.author)")
         
         // Let Firestore security rules handle authorization
         // The security rules should check that request.auth.uid == resource.data.userId
         do {
             try await documentRef.delete()
-            print("✅ Review deleted successfully")
         } catch {
-            print("❌ Error deleting review: \(error.localizedDescription)")
             // Re-throw with more context
             if let nsError = error as NSError? {
-                print("   - Error domain: \(nsError.domain)")
-                print("   - Error code: \(nsError.code)")
-                print("   - Error userInfo: \(nsError.userInfo)")
             }
             throw error
+        }
+    }
+    
+    func deleteAllReviewsByUser(userID: String) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseReviewService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        
+        // Query all reviews by this user
+        let query = db.collection("review")
+            .whereField("userId", isEqualTo: userID)
+        
+        let snapshot = try await query.getDocuments()
+        
+        // Delete all reviews in batches
+        let batch = db.batch()
+        var batchCount = 0
+        let maxBatchSize = 500 // Firestore batch limit
+        
+        for document in snapshot.documents {
+            batch.deleteDocument(document.reference)
+            batchCount += 1
+            
+            // Commit batch if we reach the limit
+            if batchCount >= maxBatchSize {
+                try await batch.commit()
+                batchCount = 0
+            }
+        }
+        
+        // Commit any remaining deletions
+        if batchCount > 0 {
+            try await batch.commit()
         }
     }
 }

@@ -17,6 +17,8 @@ protocol ListService {
     func deleteList(_ list: ShowList, for userID: String) async throws
     func addContributor(_ contributorID: String, to listID: String, for ownerID: String) async throws
     func removeContributor(_ contributorID: String, from listID: String, for ownerID: String) async throws
+    func deleteAllListsByOwner(ownerID: String) async throws
+    func removeUserFromAllLists(contributorID: String) async throws
 }
 
 struct FirebaseListService: ListService {
@@ -40,11 +42,8 @@ struct FirebaseListService: ListService {
             "contributorIDs": list.contributorIDs
         ]
         
-        print("📝 FirebaseListService.createList - Saving list '\(list.name)' with id: \(list.id)")
-        print("📝 List data: name=\(list.name), ownerID=\(finalOwnerID), contributorIDs=\(list.contributorIDs)")
         
         try await db.collection("list").document(list.id).setData(listData)
-        print("✅ FirebaseListService.createList - Successfully saved list '\(list.name)' to Firebase")
     }
     
     func fetchLists(for userID: String) async throws -> [ShowList] {
@@ -97,7 +96,6 @@ struct FirebaseListService: ListService {
             let data = document.data()
             
             guard let name = data["name"] as? String else {
-                print("⚠️ Skipping list document \(document.documentID) - missing name field")
                 continue
             }
             
@@ -116,13 +114,10 @@ struct FirebaseListService: ListService {
                     }
                     return nil
                 }
-                print("⚠️ List \(document.documentID) showIDs converted from [Any] - found \(showIDs.count) valid IDs")
             } else {
-                print("⚠️ Skipping list document \(document.documentID) - invalid showIDs field: \(data["showIDs"] ?? "nil")")
                 continue
             }
             
-            print("📋 Loaded list '\(name)' with \(showIDs.count) shows: \(showIDs)")
             
             let createdAt: Date
             if let timestamp = data["createdAt"] as? Timestamp {
@@ -205,6 +200,86 @@ struct FirebaseListService: ListService {
         try await listRef.updateData([
             "contributorIDs": FieldValue.arrayRemove([contributorID])
         ])
+    }
+    
+    func deleteAllListsByOwner(ownerID: String) async throws {
+        // Query all lists owned by this user (both new and legacy formats)
+        let ownerQuery = db.collection("list")
+            .whereField("ownerID", isEqualTo: ownerID)
+        
+        let ownerSnapshot = try await ownerQuery.getDocuments()
+        
+        // Also check legacy format
+        let legacyOwnerQuery = db.collection("list")
+            .whereField("userId", isEqualTo: ownerID)
+        
+        let legacyOwnerSnapshot = try await legacyOwnerQuery.getDocuments()
+        
+        // Combine document IDs (deduplicate)
+        var documentIDs = Set<String>()
+        for document in ownerSnapshot.documents {
+            documentIDs.insert(document.documentID)
+        }
+        for document in legacyOwnerSnapshot.documents {
+            documentIDs.insert(document.documentID)
+        }
+        
+        // Delete all lists in batches
+        let batch = db.batch()
+        var batchCount = 0
+        let maxBatchSize = 500 // Firestore batch limit
+        
+        for documentID in documentIDs {
+            let listRef = db.collection("list").document(documentID)
+            batch.deleteDocument(listRef)
+            batchCount += 1
+            
+            // Commit batch if we reach the limit
+            if batchCount >= maxBatchSize {
+                try await batch.commit()
+                batchCount = 0
+            }
+        }
+        
+        // Commit any remaining deletions
+        if batchCount > 0 {
+            try await batch.commit()
+        }
+    }
+    
+    func removeUserFromAllLists(contributorID: String) async throws {
+        // Query all lists where this user is a contributor
+        let contributorQuery = db.collection("list")
+            .whereField("contributorIDs", arrayContains: contributorID)
+        
+        let snapshot = try await contributorQuery.getDocuments()
+        
+        // Remove the user from all lists in batches
+        let batch = db.batch()
+        var batchCount = 0
+        let maxBatchSize = 500 // Firestore batch limit
+        
+        for document in snapshot.documents {
+            let listRef = db.collection("list").document(document.documentID)
+            
+            // Remove the contributor from the array
+            batch.updateData([
+                "contributorIDs": FieldValue.arrayRemove([contributorID])
+            ], forDocument: listRef)
+            
+            batchCount += 1
+            
+            // Commit batch if we reach the limit
+            if batchCount >= maxBatchSize {
+                try await batch.commit()
+                batchCount = 0
+            }
+        }
+        
+        // Commit any remaining updates
+        if batchCount > 0 {
+            try await batch.commit()
+        }
     }
 }
 

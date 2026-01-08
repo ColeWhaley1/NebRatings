@@ -6,6 +6,8 @@
 //
 
 import Foundation
+import FirebaseAuth
+import FirebaseCore
 
 @MainActor
 @Observable
@@ -30,6 +32,17 @@ final class NebRatingsStore {
     
     // Cache for searched shows to avoid re-fetching
     var showCache: [Int: Show] = [:]
+    
+    // Track if user has explicitly signed out to prevent auto-authentication
+    private let hasExplicitlySignedOutKey = "hasExplicitlySignedOut"
+    private var hasExplicitlySignedOut: Bool {
+        get {
+            UserDefaults.standard.bool(forKey: hasExplicitlySignedOutKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: hasExplicitlySignedOutKey)
+        }
+    }
 
     init(catalogService: CatalogService = TMDBService(),
          reviewService: ReviewService = FirebaseReviewService(),
@@ -42,57 +55,111 @@ final class NebRatingsStore {
         self.listService = listService
         self.authService = authService
 
-        // Check if user is already authenticated
-        if let userID = authService.getCurrentUserID() {
-            isAuthenticated = true
-            Task {
-                await loadUserProfile()
-                await loadUserLists()
+        // Set up auth state listener first - it will fire immediately with current state
+        // This ensures we properly restore authentication from Firebase's persisted tokens
+        setupAuthStateListener()
+        
+        // Also check synchronously as a fallback, but the listener should handle this
+        // Firebase Auth persists tokens in the keychain and restores them automatically
+        // IMPORTANT: Only auto-authenticate if user has NOT explicitly signed out
+        Task {
+            // Give Firebase a moment to restore the session if needed
+            try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+            
+            // Only restore authentication if user has NOT explicitly signed out
+            // This prevents auto-authentication after explicit sign out
+            if !hasExplicitlySignedOut {
+                // Check if user is authenticated (Firebase should have restored session by now)
+                if authService.getCurrentUserID() != nil, !isAuthenticated {
+                    isAuthenticated = true
+                    await loadUserProfile()
+                    await loadUserLists()
             }
-        } else {
-            // Development-only auto-sign-in
-            #if DEBUG
-            Task {
-                await autoSignInForDevelopment()
+            } else {
+                // User has explicitly signed out - ensure we're not authenticated
+                // Clear any lingering Firebase Auth state
+                if authService.getCurrentUserID() != nil {
+                    try? await authService.signOut()
+                }
+                isAuthenticated = false
+                currentUser = nil
+                userReviews = []
+                showLists = []
             }
-            #endif
         }
     }
     
-    #if DEBUG
-    /// Development-only auto-sign-in for easier testing
-    private func autoSignInForDevelopment() async {
-        // Only auto-sign-in if not already authenticated
-        guard !isAuthenticated, authService.getCurrentUserID() == nil else {
+    private func setupAuthStateListener() {
+        // Listen for auth state changes to ensure we stay logged in
+        // This handles token refresh and ensures persistence
+        // The listener fires immediately with the current auth state when added
+        guard FirebaseApp.app() != nil else {
+            // If Firebase isn't ready yet, try again after a short delay
+            Task {
+                try? await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+                setupAuthStateListener()
+            }
             return
         }
         
-        let devEmail = "colewhaley1@gmail.com"
-        let devPassword = "nebratings"
-        
-        do {
-            // Try to sign in with development credentials
-            let userID = try await authService.signIn(email: devEmail, password: devPassword)
-            await signIn(userID: userID)
-            print("✅ Development auto-sign-in successful")
-        } catch {
-            // If sign-in fails, try to create the account
-            do {
-                let userID = try await authService.signUp(email: devEmail, password: devPassword)
-                try await createProfileIfNeeded(userID: userID, name: "Cole")
-                await signIn(userID: userID)
-                print("✅ Development account created and signed in")
-            } catch {
-                print("⚠️ Development auto-sign-in failed: \(error.localizedDescription)")
+        // Add state listener - this will fire immediately if there's already a user
+        // Firebase Auth automatically persists tokens in the keychain and restores them
+        // IMPORTANT: We check hasExplicitlySignedOut to prevent auto-authentication after sign out
+        _ = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            Task { @MainActor in
+                guard let self = self else { return }
+                
+                // If user has explicitly signed out, do NOT restore authentication
+                // even if Firebase Auth has a persisted token
+                if self.hasExplicitlySignedOut {
+                    // Force sign out to clear any lingering tokens
+                    if user != nil {
+                        try? await self.authService.signOut()
+                    }
+                    self.isAuthenticated = false
+                    self.currentUser = nil
+                    self.userReviews = []
+                    self.showLists = []
+                    return
+                }
+                
+                if user != nil {
+                    // User is authenticated - ensure we're marked as authenticated
+                    // This will fire immediately on app launch if user has persisted session
+                    // Only restore authentication if there's a valid user and user hasn't signed out
+                    if !self.isAuthenticated {
+                        self.isAuthenticated = true
+                        await self.loadUserProfile()
+                        await self.loadUserLists()
+                    }
+                } else {
+                    // User is not authenticated - this happens after sign out or if no session exists
+                    // Clear all state to ensure user cannot access their account
+                    self.isAuthenticated = false
+                    self.currentUser = nil
+                    self.userReviews = []
+                    self.showLists = []
+                }
             }
         }
     }
-    #endif
+    
     
     func signIn(userID: String) async {
+        // Clear the explicit sign out flag BEFORE setting authenticated state
+        // This prevents the auth state listener from interfering with sign-in
+        hasExplicitlySignedOut = false
+        
         isAuthenticated = true
         await loadUserProfile()
         await loadUserLists()
+    }
+    
+    // Method to clear the explicit sign out flag before initiating sign-in
+    // This should be called before authService.signIn() to prevent the auth state listener
+    // from forcing a sign out during the sign-in process
+    func prepareForSignIn() {
+        hasExplicitlySignedOut = false
     }
     
     func loadUserLists() async {
@@ -132,7 +199,6 @@ final class NebRatingsStore {
             
             showLists = fetchedLists
         } catch {
-            print("❌ Error loading lists: \(error.localizedDescription)")
             // If error, initialize with default list locally
             if showLists.isEmpty {
                 let defaultList = ShowList(name: "To Watch", isDefault: true, ownerID: userID)
@@ -143,19 +209,14 @@ final class NebRatingsStore {
     
     func createList(name: String) async {
         guard let userID = authService.getCurrentUserID() else {
-            print("⚠️ Cannot create list: no authenticated user")
             return
         }
         
-        print("📝 Creating list '\(name)' for user: \(userID)")
         let newList = ShowList(name: name, ownerID: userID)
-        print("📝 Created ShowList with id: \(newList.id), ownerID: \(newList.ownerID)")
         
         do {
             try await listService.createList(newList, for: userID)
-            print("✅ List created successfully in Firebase")
             showLists.append(newList)
-            print("✅ List added to local showLists array (count: \(showLists.count))")
             
             // Sort: default list first, then by creation date (newest first)
             showLists.sort { list1, list2 in
@@ -167,22 +228,23 @@ final class NebRatingsStore {
                 }
                 return list1.createdAt > list2.createdAt
             }
-            print("✅ Lists sorted (count: \(showLists.count))")
         } catch {
-            print("❌ Error creating list: \(error.localizedDescription)")
-            print("❌ Error details: \(error)")
+            // Error creating list
         }
     }
     
     func deleteList(_ list: ShowList) async {
         // Prevent deleting the default list
         guard !list.isDefault else {
-            print("⚠️ Cannot delete default list")
             return
         }
         
         guard let userID = authService.getCurrentUserID() else {
-            print("⚠️ Cannot delete list: no authenticated user")
+            return
+        }
+        
+        // Check if user is the owner
+        guard list.ownerID == userID else {
             return
         }
         
@@ -190,18 +252,55 @@ final class NebRatingsStore {
             try await listService.deleteList(list, for: userID)
             showLists.removeAll { $0.id == list.id }
         } catch {
-            print("❌ Error deleting list: \(error.localizedDescription)")
+            // Error deleting list
+        }
+    }
+    
+    func updateListName(_ listID: String, newName: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            return
+        }
+        
+        let trimmedName = newName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else {
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Check permissions - only owner can rename
+        guard updatedList.ownerID == userID else {
+            return
+        }
+        
+        // Update local state immediately for optimistic UI
+        updatedList.name = trimmedName
+        showLists[listIndex] = updatedList
+        
+        // Update in Firestore
+        do {
+            try await listService.updateList(updatedList, for: userID)
+        } catch {
+            // Revert optimistic update
+            if let originalList = showLists.first(where: { $0.id == listID }) {
+                var revertedList = originalList
+                // Find the original name from the error or reload
+                // For now, just reload lists to get the correct state
+                await loadUserLists()
+            }
         }
     }
     
     func addShowToList(_ showID: Int, listID: String) async {
         guard let userID = authService.getCurrentUserID() else {
-            print("⚠️ Cannot add show to list: no authenticated user")
             return
         }
         
         guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
-            print("⚠️ List not found: \(listID)")
             return
         }
         
@@ -209,13 +308,11 @@ final class NebRatingsStore {
         
         // Check permissions
         guard updatedList.canEdit(userID: userID) else {
-            print("⚠️ User does not have permission to edit this list")
             return
         }
         
         // Check if show is already in the list
         guard !updatedList.showIDs.contains(showID) else {
-            print("⚠️ Show already in list")
             return
         }
         
@@ -227,7 +324,6 @@ final class NebRatingsStore {
         do {
             try await listService.updateList(updatedList, for: userID)
         } catch {
-            print("❌ Error updating list: \(error.localizedDescription)")
             // Revert on error
             updatedList.showIDs.removeAll { $0 == showID }
             showLists[listIndex] = updatedList
@@ -236,12 +332,10 @@ final class NebRatingsStore {
     
     func removeShowFromList(_ showID: Int, listID: String) async {
         guard let userID = authService.getCurrentUserID() else {
-            print("⚠️ Cannot remove show from list: no authenticated user")
             return
         }
         
         guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
-            print("⚠️ List not found: \(listID)")
             return
         }
         
@@ -249,7 +343,6 @@ final class NebRatingsStore {
         
         // Check permissions
         guard updatedList.canEdit(userID: userID) else {
-            print("⚠️ User does not have permission to edit this list")
             return
         }
         
@@ -261,7 +354,6 @@ final class NebRatingsStore {
         do {
             try await listService.updateList(updatedList, for: userID)
         } catch {
-            print("❌ Error updating list: \(error.localizedDescription)")
             // Revert on error
             updatedList.showIDs.append(showID)
             showLists[listIndex] = updatedList
@@ -270,12 +362,10 @@ final class NebRatingsStore {
     
     func addContributor(_ contributorID: String, to listID: String) async {
         guard let userID = authService.getCurrentUserID() else {
-            print("⚠️ Cannot add contributor: no authenticated user")
             return
         }
         
         guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
-            print("⚠️ List not found: \(listID)")
             return
         }
         
@@ -283,19 +373,16 @@ final class NebRatingsStore {
         
         // Only owner can add contributors
         guard updatedList.ownerID == userID else {
-            print("⚠️ Only the list owner can add contributors")
             return
         }
         
         // Don't add owner as contributor
         guard contributorID != updatedList.ownerID else {
-            print("⚠️ Cannot add list owner as contributor")
             return
         }
         
         // Don't add if already a contributor
         guard !updatedList.contributorIDs.contains(contributorID) else {
-            print("⚠️ User is already a contributor")
             return
         }
         
@@ -309,7 +396,6 @@ final class NebRatingsStore {
             // Reload lists to ensure consistency
             await loadUserLists()
         } catch {
-            print("❌ Error adding contributor: \(error.localizedDescription)")
             // Revert on error
             updatedList.contributorIDs.removeAll { $0 == contributorID }
             showLists[listIndex] = updatedList
@@ -318,12 +404,10 @@ final class NebRatingsStore {
     
     func removeContributor(_ contributorID: String, from listID: String) async {
         guard let userID = authService.getCurrentUserID() else {
-            print("⚠️ Cannot remove contributor: no authenticated user")
             return
         }
         
         guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
-            print("⚠️ List not found: \(listID)")
             return
         }
         
@@ -331,7 +415,6 @@ final class NebRatingsStore {
         
         // Only owner can remove contributors
         guard updatedList.ownerID == userID else {
-            print("⚠️ Only the list owner can remove contributors")
             return
         }
         
@@ -345,9 +428,40 @@ final class NebRatingsStore {
             // Reload lists to ensure consistency
             await loadUserLists()
         } catch {
-            print("❌ Error removing contributor: \(error.localizedDescription)")
             // Revert on error
             updatedList.contributorIDs.append(contributorID)
+            showLists[listIndex] = updatedList
+        }
+    }
+    
+    func removeSelfAsContributor(from listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Check if user is actually a contributor
+        guard updatedList.contributorIDs.contains(userID) else {
+            return
+        }
+        
+        // Remove self as contributor locally
+        updatedList.contributorIDs.removeAll { $0 == userID }
+        showLists[listIndex] = updatedList
+        
+        // Update in Firebase (use ownerID for the service call, but the service will handle the removal)
+        do {
+            try await listService.removeContributor(userID, from: listID, for: updatedList.ownerID)
+            // Reload lists to ensure consistency
+            await loadUserLists()
+        } catch {
+            // Revert optimistic update
+            updatedList.contributorIDs.append(userID)
             showLists[listIndex] = updatedList
         }
     }
@@ -356,7 +470,6 @@ final class NebRatingsStore {
         do {
             return try await profileService.searchUsers(byName: name)
         } catch {
-            print("❌ Error searching users: \(error.localizedDescription)")
             return []
         }
     }
@@ -365,7 +478,6 @@ final class NebRatingsStore {
         do {
             return try await profileService.fetchProfile(userID: userID)
         } catch {
-            print("❌ Error fetching profile: \(error.localizedDescription)")
             return nil
         }
     }
@@ -374,11 +486,8 @@ final class NebRatingsStore {
         // Always try to create the profile - Firestore setData will overwrite if it exists
         // This is simpler and ensures the profile is created with the correct name
         do {
-            print("📝 Creating profile for user: \(userID) with name: \(name)")
             try await profileService.createProfile(userID: userID, name: name)
-            print("✅ Profile created/updated successfully for user: \(userID)")
         } catch {
-            print("❌ Error creating profile: \(error.localizedDescription)")
             // Re-throw the error so the caller can handle it
             throw error
         }
@@ -386,13 +495,66 @@ final class NebRatingsStore {
     
     func signOut() async {
         do {
+            // Mark that user has explicitly signed out - this prevents auto-authentication
+            hasExplicitlySignedOut = true
+            
+            // Sign out from Firebase Auth - this invalidates the token and clears the keychain
             try await authService.signOut()
+            
+            // Clear local state immediately
             isAuthenticated = false
             currentUser = nil
             userReviews = []
             showLists = []
+            
+            // Verify that sign out was successful - user should be nil
+            // This ensures the token is truly invalidated
+            if authService.getCurrentUserID() != nil {
+                // If user still exists, force clear by signing out again
+                try? await authService.signOut()
+            }
         } catch {
-            print("Error signing out: \(error)")
+            // Even if sign out fails, mark as signed out and clear local state
+            hasExplicitlySignedOut = true
+            isAuthenticated = false
+            currentUser = nil
+            userReviews = []
+            showLists = []
+        }
+    }
+    
+    func deleteAccount() async throws {
+        guard let userID = authService.getCurrentUserID() else {
+            throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        
+        // Store username before clearing state
+        let username = currentUser?.username
+        
+        // Delete all reviews by this user
+        try await reviewService.deleteAllReviewsByUser(userID: userID)
+        
+        // Remove user from all lists where they are a contributor
+        try await listService.removeUserFromAllLists(contributorID: userID)
+        
+        // Delete all lists owned by this user
+        try await listService.deleteAllListsByOwner(ownerID: userID)
+        
+        // Delete user profile
+        try await profileService.deleteProfile(userID: userID)
+        
+        // Delete Firebase Auth account (this must be last)
+        try await authService.deleteAccount()
+        
+        // Clear local state
+        isAuthenticated = false
+        currentUser = nil
+        userReviews = []
+        showLists = []
+        
+        // Remove reviews from local cache if username was available
+        if let username = username {
+            reviews.removeAll { $0.author == username }
         }
     }
 
@@ -415,7 +577,6 @@ final class NebRatingsStore {
             }
         } catch {
             // Handle error - could show error state
-            print("Error searching shows: \(error)")
             // Show empty results on error rather than crashing
             shows = []
         }
@@ -435,7 +596,6 @@ final class NebRatingsStore {
             }
         } catch {
             // Handle error - could show error state
-            print("Error loading trending shows: \(error)")
             // Show empty results on error rather than crashing
             shows = []
         }
@@ -459,8 +619,6 @@ final class NebRatingsStore {
             showID: showID,
             limit: limit
         )
-        
-        print("Query:", query)
         
         do {
             let results = try await reviewService.queryReviews(query)
@@ -491,19 +649,15 @@ final class NebRatingsStore {
             }
         } catch {
             // Handle error
-            print("Error querying reviews: \(error)")
         }
     }
 
     func loadUserProfile() async {
         do {
             let profile = try await profileService.fetchCurrentUser()
-            print(profile)
             currentUser = profile
             await loadUserReviews(for: profile.id)
         } catch {
-            // Log error for debugging
-            print("Error loading user profile: \(error.localizedDescription)")
             // Keep currentUser as nil if profile can't be loaded
             currentUser = nil
         }
@@ -523,7 +677,6 @@ final class NebRatingsStore {
     private func loadUserReviews(for userID: String) async {
         do {
             let reviews = try await profileService.fetchReviews(for: userID)
-            print(reviews)
             userReviews = reviews
         } catch {
             // Keep existing user reviews.
@@ -543,7 +696,7 @@ final class NebRatingsStore {
                 return show
             }
         } catch {
-            print("Error fetching show details: \(error)")
+            // Error fetching show details
         }
         
         return nil
@@ -558,7 +711,7 @@ final class NebRatingsStore {
                 return show
             }
         } catch {
-            print("Error fetching show details by TMDB ID: \(error)")
+            // Error fetching show details by TMDB ID
         }
         
         return nil
@@ -621,7 +774,6 @@ final class NebRatingsStore {
             }
         } catch {
             // Handle error - could show error state
-            print("Error loading recommendations: \(error)")
             // Show empty results on error rather than crashing
             recommendations = []
         }
@@ -630,7 +782,6 @@ final class NebRatingsStore {
     func addReview(author: String, comment: String, rating: Double, to show: Show, season: Int? = nil) {
         // Use the show's ID directly - it's now the TMDB ID
         let showID = show.id
-        print("📝 Posting review with showID: \(showID), season: \(season?.description ?? "nil")")
         
         // Safety check: if user already has a review for the same season (or both nil), update it instead of creating duplicate
         // (This shouldn't happen if UI is working correctly, but serves as a safeguard)
@@ -643,7 +794,6 @@ final class NebRatingsStore {
                 
                 if let existingReview = localExistingReview {
                     // User already has a review for this show/season - update it
-                    print("📝 User already has a review for this show/season, updating existing review")
                     await updateReview(existingReview, comment: comment, rating: rating, season: season)
                     return
                 }
@@ -660,7 +810,6 @@ final class NebRatingsStore {
                     // Filter by matching season (both nil means "entire show")
                     if let existingReview = existingReviews.first(where: { $0.season == season }) {
                         // User already has a review for this season - update it
-                        print("📝 User already has a review in Firestore for this season, updating existing review")
                         await updateReview(existingReview, comment: comment, rating: rating, season: season)
                         return
                     }
@@ -691,7 +840,6 @@ final class NebRatingsStore {
                 await queryReviews(showID: show.id)
             } catch {
                 // Handle error
-                print("Error submitting review: \(error)")
             }
         }
     }
@@ -731,12 +879,11 @@ final class NebRatingsStore {
             // Refresh reviews for this show
             await queryReviews(showID: review.showID)
         } catch {
-            print("Error updating review: \(error)")
+            // Error updating review
         }
     }
     
     func updateReview(_ review: Review, comment: String, rating: Double) {
-        print("📝 Updating review with ID: \(review.id)")
         
         // Create updated review with new comment and rating, keeping season from original
         let updatedReview = Review(
@@ -775,7 +922,6 @@ final class NebRatingsStore {
                 await queryReviews(showID: review.showID)
             } catch {
                 // Handle error - revert optimistic update
-                print("Error updating review: \(error)")
                 // Revert to original review
                 if let index = reviews.firstIndex(where: { $0.id == review.id }) {
                     var updatedReviews = reviews
@@ -794,7 +940,6 @@ final class NebRatingsStore {
     }
     
     func deleteReview(_ review: Review) {
-        print("🗑️ Deleting review with ID: \(review.id)")
         
         // Remove from local state immediately for optimistic UI
         reviews = reviews.filter { $0.id != review.id }
@@ -812,7 +957,6 @@ final class NebRatingsStore {
                 await queryReviews(showID: review.showID)
             } catch {
                 // Handle error - restore optimistic update
-                print("Error deleting review: \(error)")
                 // Restore the review
                 var updatedReviews = reviews
                 updatedReviews.append(review)

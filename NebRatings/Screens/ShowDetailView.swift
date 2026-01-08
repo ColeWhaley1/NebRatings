@@ -54,14 +54,6 @@ struct ShowDetailView: View {
             filtered = filtered.filter { $0.season == nil }
         }
         
-        print("📊 Filtered reviews: \(filtered.count) reviews for showID: \(showID), season: \(filterSeason?.description ?? "nil (entire show)")")
-        print("📊 Total reviews in store: \(store.reviews.count)")
-        if filtered.isEmpty && !store.reviews.isEmpty {
-            print("⚠️ No reviews matched! Sample review showIDs:")
-            for review in store.reviews.prefix(3) {
-                print("  - Review showID: \(review.showID), title: \(review.showTitle), season: \(review.season?.description ?? "nil")")
-            }
-        }
         
         // Sort reviews: user's review first, then by timestamp (newest first)
         let currentUserName = store.currentUser?.username
@@ -198,14 +190,14 @@ struct ShowDetailView: View {
                 }
                 .padding(.vertical, 20)
             }
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture()
-                    .onEnded { _ in
-                        isCommentFocused = false
-                    }
-            )
         }
+        .background(
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isCommentFocused = false
+                }
+        )
         .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
         .navigationTitle(displayShow.title)
@@ -248,7 +240,6 @@ struct ShowDetailView: View {
     private func loadShowReviews() async {
         // Use displayShow.id directly - it's now the TMDB ID
         let showID = displayShow.id
-        print("🔍 Loading reviews for showID: \(showID)")
         await store.queryReviews(showID: showID)
     }
     
@@ -1041,6 +1032,10 @@ struct ShowDetailView: View {
                             .buttonStyle(.plain)
                         }
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        isCommentFocused = false
+                    }
                     
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Comment")
@@ -1051,6 +1046,7 @@ struct ShowDetailView: View {
                             .scrollContentBackground(.hidden)
                             .background(Color(.systemBackground))
                             .foregroundColor(.primary)
+                            .textSelection(.enabled)
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(.separator), lineWidth: 1))
                             .contentMargins(4.0)

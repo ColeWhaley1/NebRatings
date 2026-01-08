@@ -53,7 +53,6 @@ struct TMDBService: CatalogService {
                 let movies = try await searchMovies(query: query)
                 shows.append(contentsOf: movies)
             } catch {
-                print("Error searching movies: \(error)")
                 // Continue to try TV shows even if movies fail
             }
         }
@@ -64,7 +63,6 @@ struct TMDBService: CatalogService {
                 let tvShows = try await searchTVShows(query: query)
                 shows.append(contentsOf: tvShows)
             } catch {
-                print("Error searching TV shows: \(error)")
                 // If we're searching for a specific category and it fails, re-throw
                 if category == .series {
                     throw error
@@ -102,9 +100,7 @@ struct TMDBService: CatalogService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("TMDB API Error: Status code \(httpResponse.statusCode)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response: \(errorString)")
             }
             throw TMDBError.invalidResponse
         }
@@ -113,9 +109,7 @@ struct TMDBService: CatalogService {
             let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
             return movieResponse.results.map { convertMovieToShow($0) }
         } catch {
-            print("Decoding error: \(error)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response data: \(errorString.prefix(500))")
             }
             throw TMDBError.decodingError
         }
@@ -143,9 +137,7 @@ struct TMDBService: CatalogService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("TMDB API Error: Status code \(httpResponse.statusCode)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response: \(errorString)")
             }
             throw TMDBError.invalidResponse
         }
@@ -154,9 +146,7 @@ struct TMDBService: CatalogService {
             let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
             return tvResponse.results.map { convertTVToShow($0) }
         } catch {
-            print("Decoding error: \(error)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response data: \(errorString.prefix(500))")
             }
             throw TMDBError.decodingError
         }
@@ -204,7 +194,6 @@ struct TMDBService: CatalogService {
             let watchProviders = try? await fetchWatchProviders(tmdbID: movieDetails.id, category: .movie)
             return convertMovieDetailsToShow(movieDetails, watchProviders: watchProviders ?? [])
         } catch {
-            print("Decoding error: \(error)")
             throw TMDBError.decodingError
         }
     }
@@ -238,7 +227,6 @@ struct TMDBService: CatalogService {
             let watchProviders = try? await fetchWatchProviders(tmdbID: tvDetails.id, category: .series)
             return convertTVDetailsToShow(tvDetails, watchProviders: watchProviders ?? [])
         } catch {
-            print("Decoding error: \(error)")
             throw TMDBError.decodingError
         }
     }
@@ -357,7 +345,6 @@ struct TMDBService: CatalogService {
             
             return providers
         } catch {
-            print("Error decoding watch providers: \(error)")
             return []
         }
     }
@@ -458,7 +445,6 @@ struct TMDBService: CatalogService {
                 let movies = try await fetchTrendingMovies()
                 shows.append(contentsOf: movies)
             } catch {
-                print("Error fetching trending movies: \(error)")
                 // Continue to try TV shows even if movies fail
             }
         }
@@ -469,7 +455,6 @@ struct TMDBService: CatalogService {
                 let tvShows = try await fetchTrendingTVShows()
                 shows.append(contentsOf: tvShows)
             } catch {
-                print("Error fetching trending TV shows: \(error)")
                 // If we're fetching for a specific category and it fails, re-throw
                 if category == .series {
                     throw error
@@ -505,9 +490,7 @@ struct TMDBService: CatalogService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("TMDB API Error: Status code \(httpResponse.statusCode)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response: \(errorString)")
             }
             throw TMDBError.invalidResponse
         }
@@ -516,9 +499,7 @@ struct TMDBService: CatalogService {
             let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
             return movieResponse.results.map { convertMovieToShow($0) }
         } catch {
-            print("Decoding error: \(error)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response data: \(errorString.prefix(500))")
             }
             throw TMDBError.decodingError
         }
@@ -544,9 +525,7 @@ struct TMDBService: CatalogService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("TMDB API Error: Status code \(httpResponse.statusCode)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response: \(errorString)")
             }
             throw TMDBError.invalidResponse
         }
@@ -555,9 +534,7 @@ struct TMDBService: CatalogService {
             let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
             return tvResponse.results.map { convertTVToShow($0) }
         } catch {
-            print("Decoding error: \(error)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response data: \(errorString.prefix(500))")
             }
             throw TMDBError.decodingError
         }
@@ -596,9 +573,7 @@ struct TMDBService: CatalogService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("TMDB API Error: Status code \(httpResponse.statusCode)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response: \(errorString)")
             }
             throw TMDBError.invalidResponse
         }
@@ -607,9 +582,7 @@ struct TMDBService: CatalogService {
             let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
             return movieResponse.results.map { convertMovieToShow($0) }
         } catch {
-            print("Decoding error: \(error)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response data: \(errorString.prefix(500))")
             }
             throw TMDBError.decodingError
         }
@@ -635,9 +608,7 @@ struct TMDBService: CatalogService {
         }
         
         guard (200...299).contains(httpResponse.statusCode) else {
-            print("TMDB API Error: Status code \(httpResponse.statusCode)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response: \(errorString)")
             }
             throw TMDBError.invalidResponse
         }
@@ -646,9 +617,7 @@ struct TMDBService: CatalogService {
             let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
             return tvResponse.results.map { convertTVToShow($0) }
         } catch {
-            print("Decoding error: \(error)")
             if let errorString = String(data: data, encoding: .utf8) {
-                print("Response data: \(errorString.prefix(500))")
             }
             throw TMDBError.decodingError
         }

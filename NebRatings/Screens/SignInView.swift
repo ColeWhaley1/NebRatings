@@ -19,134 +19,154 @@ struct SignInView: View {
     @State private var showSignUp = false
     
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-            
-            // App branding/logo area
-            VStack(spacing: 24) {
-                Image(systemName: "moon.stars.fill")
-                    .font(.system(size: 80))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [Color.purple, Color.blue],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
+        ScrollView {
+            VStack(spacing: 0) {
+                Spacer()
+                    .frame(height: 40)
+                
+                // App branding/logo area
+                VStack(spacing: 24) {
+                    Image(systemName: "chair.lounge.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(
+                            LinearGradient(
+                                colors: [Color.purple, Color.blue],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                    .shadow(color: .purple.opacity(0.5), radius: 20, x: 0, y: 10)
-                
-                VStack(spacing: 8) {
-                    Text("NebRatings")
-                        .font(.system(size: 36, weight: .bold, design: .default))
-                        .foregroundStyle(.primary)
+                        .shadow(color: .purple.opacity(0.5), radius: 20, x: 0, y: 10)
                     
-                    Text("Drop your nebs on the best shows")
-                        .font(.system(size: 16, weight: .regular, design: .default))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
+                    VStack(spacing: 8) {
+                        Text("NebRatings")
+                            .font(.system(size: 36, weight: .bold, design: .default))
+                            .foregroundStyle(.primary)
+                        
+                        Text("Drop your nebs on the best shows")
+                            .font(.system(size: 16, weight: .regular, design: .default))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 }
-            }
-            .padding(.bottom, 60)
-            
-            Spacer()
-            
-            // Authentication form
-            VStack(spacing: 20) {
-                if let errorMessage = errorMessage {
-                    Text(errorMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.red)
-                        .padding(.horizontal)
-                        .multilineTextAlignment(.center)
-                }
+                .padding(.bottom, 20)
                 
-                VStack(spacing: 16) {
-                    if showSignUp {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Username")
-                                .font(.subheadline.bold())
+                // Authentication form
+                VStack(spacing: 24) {
+                    // Error message area with fixed minimum height
+                    VStack(spacing: 0) {
+                        if let errorMessage = errorMessage {
+                            Text(errorMessage)
+                                .font(.body)
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 12)
+                                .multilineTextAlignment(.center)
+                                .frame(minHeight: 60)
+                        } else {
+                            // Reserve space even when no error
+                            Spacer()
+                                .frame(height: 60)
+                        }
+                    }
+                    
+                    VStack(spacing: 24) {
+                        if showSignUp {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("Username")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(.primary)
+                                TextField("Enter your username", text: $name)
+                                    .textContentType(.name)
+                                    .autocapitalization(.words)
+                                    .font(.title3)
+                                    .padding(.horizontal, 16)
+                                    .padding(.vertical, 16)
+                                    .background(Color(.systemBackground))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 12)
+                                            .stroke(Color.primary.opacity(0.3), lineWidth: 2)
+                                    )
+                                    .disabled(isSigningIn || isSigningUp)
+                            }
+                        }
+                        
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Email")
+                                .font(.title3.bold())
                                 .foregroundStyle(.primary)
-                            TextField("Enter your username", text: $name)
-                                .textFieldStyle(.roundedBorder)
-                                .textContentType(.name)
-                                .autocapitalization(.words)
+                            TextField("Enter your email", text: $email)
+                                .textContentType(.emailAddress)
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                                .font(.title3)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 16)
+                                .background(Color(.systemBackground))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.primary.opacity(0.3), lineWidth: 2)
+                                )
                                 .disabled(isSigningIn || isSigningUp)
                         }
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Email")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                        TextField("Enter your email", text: $email)
-                            .textFieldStyle(.roundedBorder)
-                            .textContentType(.emailAddress)
-                            .keyboardType(.emailAddress)
-                            .autocapitalization(.none)
-                            .disabled(isSigningIn || isSigningUp)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Password")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.primary)
-                        SecureField("Enter your password", text: $password)
-                            .textFieldStyle(.roundedBorder)
-                            .textContentType(showSignUp ? .newPassword : .password)
-                            .disabled(isSigningIn || isSigningUp)
-                    }
-                    
-                    if isSigningIn || isSigningUp {
-                        ProgressView()
-                            .padding(.top, 8)
-                    } else {
+                        
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Password")
+                                .font(.title3.bold())
+                                .foregroundStyle(.primary)
+                            SecureField("Enter your password", text: $password)
+                                .textContentType(showSignUp ? .newPassword : .password)
+                                .font(.title3)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 16)
+                                .background(Color(.systemBackground))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(Color.primary.opacity(0.3), lineWidth: 2)
+                                )
+                                .disabled(isSigningIn || isSigningUp)
+                        }
+                        
+                        if isSigningIn || isSigningUp {
+                            ProgressView()
+                                .padding(.top, 16)
+                                .frame(height: 50)
+                        } else {
+                            Button(action: {
+                                if showSignUp {
+                                    signUp()
+                                } else {
+                                    signIn()
+                                }
+                            }) {
+                                Text(showSignUp ? "Sign Up" : "Sign In")
+                                    .font(.headline)
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: 50)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.purple)
+                            .controlSize(.large)
+                            .disabled(!isFormValid)
+                        }
+                        
                         Button(action: {
-                            if showSignUp {
-                                signUp()
-                            } else {
-                                signIn()
+                            showSignUp.toggle()
+                            errorMessage = nil
+                            if !showSignUp {
+                                name = "" // Clear name when switching to sign in
                             }
                         }) {
-                            Text(showSignUp ? "Sign Up" : "Sign In")
-                                .font(.headline)
-                                .frame(maxWidth: .infinity)
+                            Text(showSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .padding(.vertical, 8)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.purple)
-                        .controlSize(.large)
-                        .disabled(!isFormValid)
+                        .disabled(isSigningIn || isSigningUp)
                     }
-                    
-                    Button(action: {
-                        showSignUp.toggle()
-                        errorMessage = nil
-                        if !showSignUp {
-                            name = "" // Clear name when switching to sign in
-                        }
-                    }) {
-                        Text(showSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    .disabled(isSigningIn || isSigningUp)
-                    
-                    // TEMPORARY: Quick login button for testing
-                    Divider()
-                        .padding(.vertical, 8)
-                    
-                    Button(action: quickLogin) {
-                        Label("Quick Login (Testing)", systemImage: "bolt.fill")
-                            .font(.subheadline.bold())
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(.orange)
-                    .controlSize(.large)
-                    .disabled(isSigningIn || isSigningUp)
+                    .padding(.horizontal, 32)
                 }
-                .padding(.horizontal, 40)
+                .padding(.bottom, 40)
             }
-            .padding(.bottom, 60)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
@@ -170,6 +190,10 @@ struct SignInView: View {
         isSigningIn = true
         errorMessage = nil
         
+        // Clear the explicit sign out flag BEFORE calling authService.signIn()
+        // This prevents the auth state listener from forcing a sign out during sign-in
+        store.prepareForSignIn()
+        
         Task {
             do {
                 let userID = try await store.authService.signIn(
@@ -179,7 +203,7 @@ struct SignInView: View {
                 await store.signIn(userID: userID)
                 isSigningIn = false
             } catch {
-                errorMessage = "Sign in failed: \(error.localizedDescription)"
+                errorMessage = formatErrorMessage(error, isSignUp: false)
                 isSigningIn = false
             }
         }
@@ -189,6 +213,10 @@ struct SignInView: View {
         guard isFormValid else { return }
         isSigningUp = true
         errorMessage = nil
+        
+        // Clear the explicit sign out flag BEFORE calling authService.signUp()
+        // This prevents the auth state listener from interfering during sign-up
+        store.prepareForSignIn()
         
         Task {
             do {
@@ -203,20 +231,13 @@ struct SignInView: View {
                 } catch {
                     // If profile creation fails, delete the Firebase Auth account that was just created
                     // and show error to prevent sign-in
-                    if let nsError = error as NSError?, nsError.domain == "ProfileService" && nsError.code == -3 {
-                        // Username already taken error
-                        errorMessage = error.localizedDescription
-                    } else {
-                        errorMessage = "Account setup failed: \(error.localizedDescription). Please try again."
-                    }
-                    print("❌ Profile creation failed during sign-up: \(error.localizedDescription)")
+                    errorMessage = formatProfileCreationErrorMessage(error)
                     
                     // Delete the Firebase Auth account since profile creation failed
                     do {
                         try await store.authService.deleteAccount()
-                        print("✅ Deleted Firebase Auth account after profile creation failure")
                     } catch {
-                        print("⚠️ Failed to delete Firebase Auth account after profile creation failure: \(error.localizedDescription)")
+                        // Failed to delete Firebase Auth account after profile creation failure
                         // Still try to sign out as fallback
                         try? await store.authService.signOut()
                     }
@@ -227,30 +248,148 @@ struct SignInView: View {
                 await store.signIn(userID: userID)
                 isSigningUp = false
             } catch {
-                errorMessage = "Sign up failed: \(error.localizedDescription)"
+                errorMessage = formatErrorMessage(error, isSignUp: true)
                 isSigningUp = false
             }
         }
     }
     
-    // TEMPORARY: Quick login function for testing
-    private func quickLogin() {
-        isSigningIn = true
-        errorMessage = nil
+    
+    private func formatErrorMessage(_ error: Error, isSignUp: Bool) -> String {
+        let errorString = error.localizedDescription.lowercased()
         
-        Task {
-            do {
-                let userID = try await store.authService.signIn(
-                    email: "colewhaley1@gmail.com",
-                    password: "nebratings"
-                )
-                await store.signIn(userID: userID)
-                isSigningIn = false
-            } catch {
-                errorMessage = "Quick login failed: \(error.localizedDescription)"
-                isSigningIn = false
+        // Email format errors (safe to be specific)
+        if errorString.contains("email") && (errorString.contains("badly formatted") || errorString.contains("invalid") || errorString.contains("malformed")) {
+            return "Please enter a valid email address"
+        }
+        
+        // Sign-up specific errors (can be more specific)
+        if isSignUp {
+            if errorString.contains("email") && errorString.contains("already in use") {
+                return "This email is already registered. Try signing in instead"
+            }
+            if errorString.contains("password") && (errorString.contains("too weak") || errorString.contains("too short") || errorString.contains("minimum")) {
+                return "Password is too weak. Please use at least 6 characters"
+            }
+            if errorString.contains("password") && errorString.contains("invalid") {
+                return "Password must be at least 6 characters long"
             }
         }
+        
+        // Sign-in errors (must be generic for security - don't reveal if email exists)
+        if !isSignUp {
+            // For sign-in, always use generic message to avoid revealing if email exists
+            // Catch all password-related errors
+            if errorString.contains("user record") || 
+               errorString.contains("user not found") ||
+               errorString.contains("email") && errorString.contains("not found") ||
+               errorString.contains("password") ||
+               errorString.contains("wrong password") ||
+               errorString.contains("invalid credential") ||
+               errorString.contains("credential") ||
+               errorString.contains("authentication") {
+                return "Email or password is incorrect"
+            }
+        }
+        
+        // Network errors (safe to be specific)
+        if errorString.contains("network") || 
+           errorString.contains("connection") || 
+           errorString.contains("internet") ||
+           errorString.contains("offline") ||
+           errorString.contains("timeout") {
+            return "Connection problem. Please check your internet and try again"
+        }
+        
+        // Rate limiting (safe to be specific)
+        if errorString.contains("too many requests") || 
+           errorString.contains("too many attempts") ||
+           errorString.contains("quota") ||
+           errorString.contains("rate limit") {
+            return "Too many attempts. Please wait a moment and try again"
+        }
+        
+        // Permission/access errors
+        if errorString.contains("permission") || errorString.contains("unauthorized") || errorString.contains("access denied") {
+            return "You don't have permission to do this. Please contact support if this continues"
+        }
+        
+        // Account disabled/disabled errors
+        if errorString.contains("disabled") || errorString.contains("suspended") || errorString.contains("banned") {
+            return "This account has been disabled. Please contact support for help"
+        }
+        
+        // Token/session errors
+        if errorString.contains("token") || errorString.contains("session") || errorString.contains("expired") {
+            return "Your session expired. Please try again"
+        }
+        
+        // Firebase specific errors
+        if errorString.contains("firebase") {
+            if errorString.contains("auth") {
+                return "Authentication error. Please try again"
+            }
+            return "Service error. Please try again in a moment"
+        }
+        
+        // API/service errors
+        if errorString.contains("api") || errorString.contains("service") || errorString.contains("server") {
+            return "Service temporarily unavailable. Please try again in a moment"
+        }
+        
+        // Validation errors
+        if errorString.contains("validation") || errorString.contains("invalid") {
+            if isSignUp {
+                return "Please check that all fields are filled correctly"
+            } else {
+                return "Please check your email and password"
+            }
+        }
+        
+        // Default fallback - try to extract meaningful info from error
+        let originalError = error.localizedDescription
+        if !originalError.isEmpty && originalError.count < 100 {
+            // If error message is short and readable, show it
+            return originalError
+        }
+        
+        return "Unable to sign in. Please check your information and try again"
+    }
+    
+    private func formatProfileCreationErrorMessage(_ error: Error) -> String {
+        let errorString = error.localizedDescription.lowercased()
+        
+        // Username already taken
+        if errorString.contains("username") && (errorString.contains("already taken") || errorString.contains("already exists") || errorString.contains("taken")) {
+            return "This username is already taken. Please choose a different one."
+        }
+        
+        // Empty name
+        if errorString.contains("name") && (errorString.contains("empty") || errorString.contains("cannot be empty") || errorString.contains("required")) {
+            return "Please enter a username"
+        }
+        
+        // Invalid name format
+        if errorString.contains("invalid") && errorString.contains("name") {
+            return "Username contains invalid characters. Please use only letters, numbers, and spaces."
+        }
+        
+        // Network errors
+        if errorString.contains("network") || 
+           errorString.contains("connection") || 
+           errorString.contains("internet") ||
+           errorString.contains("offline") ||
+           errorString.contains("timeout") {
+            return "Connection problem. Please check your internet and try again"
+        }
+        
+        // Permission errors
+        if errorString.contains("permission") || errorString.contains("unauthorized") {
+            return "Unable to create account. Please try again"
+        }
+        
+        // Default fallback
+        return "Unable to create account. Please try again"
     }
 }
 

@@ -35,9 +35,34 @@ struct NebRatingsApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppRootView()
                 .environment(store)
         }
         .modelContainer(sharedModelContainer)
+    }
+}
+
+struct AppRootView: View {
+    @Environment(NebRatingsStore.self) private var store
+    @State private var showSplash = true
+    
+    var body: some View {
+        Group {
+            if showSplash {
+                SplashScreenView()
+                    .transition(.opacity)
+            } else {
+                ContentView()
+                    .transition(.opacity)
+            }
+        }
+        .onAppear {
+            // Show splash for 0.5 seconds
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showSplash = false
+                }
+            }
+        }
     }
 }
