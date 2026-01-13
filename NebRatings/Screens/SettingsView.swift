@@ -20,6 +20,8 @@ struct SettingsView: View {
             List {
                 appearanceSection
                 accountSection
+                contactSection
+                legalSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
@@ -134,6 +136,26 @@ struct SettingsView: View {
             }
         }
         return "An error occurred while deleting your account. Please try again."
+    }
+    
+    private var contactSection: some View {
+        Section("Support") {
+            NavigationLink(destination: ContactFormView()) {
+                Label("Contact Us", systemImage: "envelope")
+            }
+        }
+    }
+    
+    private var legalSection: some View {
+        Section("Legal") {
+            NavigationLink(destination: PrivacyPolicyView()) {
+                Label("Privacy Policy", systemImage: "hand.raised.fill")
+            }
+            
+            NavigationLink(destination: TermsAndConditionsView()) {
+                Label("Terms and Conditions", systemImage: "doc.text.fill")
+            }
+        }
     }
 }
 

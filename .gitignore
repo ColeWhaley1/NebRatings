@@ -6,3 +6,4 @@ DerivedData/
 # Firebase
 GoogleService-Info.plist
 
+Config.xcconfig

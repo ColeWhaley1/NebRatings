@@ -29,9 +29,8 @@ protocol ReviewService {
 
 struct FirebaseReviewService: ReviewService {
     private var db: Firestore {
-        guard FirebaseApp.app() != nil else {
-            fatalError("Firebase is not initialized. Make sure FirebaseApp.configure() is called.")
-        }
+        // Return Firestore instance - errors will be handled at the call site if Firebase isn't initialized
+        // This prevents app crashes and allows graceful error handling
         return Firestore.firestore()
     }
     

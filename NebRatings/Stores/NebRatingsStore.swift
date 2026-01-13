@@ -5,15 +5,15 @@
 //  Created by Cole Whaley on 11/29/25.
 //
 
-import Foundation
 import FirebaseAuth
 import FirebaseCore
+import Foundation
 
 @MainActor
 @Observable
 final class NebRatingsStore {
     var shows: [Show] = []
-    var reviews: [Review] = []  // Made public for SwiftUI observation
+    var reviews: [Review] = [] // Made public for SwiftUI observation
     private(set) var currentUser: UserProfile?
     private(set) var userReviews: [Review] = []
     private(set) var isAuthenticated = false
@@ -28,6 +28,7 @@ final class NebRatingsStore {
     private let reviewService: ReviewService
     private let profileService: ProfileService
     private let listService: ListService
+    private let contactService: ContactService
     let authService: AuthService
     
     // Cache for searched shows to avoid re-fetching
@@ -48,12 +49,15 @@ final class NebRatingsStore {
          reviewService: ReviewService = FirebaseReviewService(),
          profileService: ProfileService = FirebaseProfileService(),
          listService: ListService = FirebaseListService(),
-         authService: AuthService = FirebaseAuthService()) {
+         authService: AuthService = FirebaseAuthService(),
+         contactService: ContactService = FirebaseContactService())
+    {
         self.catalogService = catalogService
         self.reviewService = reviewService
         self.profileService = profileService
         self.listService = listService
         self.authService = authService
+        self.contactService = contactService
 
         // Set up auth state listener first - it will fire immediately with current state
         // This ensures we properly restore authentication from Firebase's persisted tokens
@@ -74,7 +78,7 @@ final class NebRatingsStore {
                     isAuthenticated = true
                     await loadUserProfile()
                     await loadUserLists()
-            }
+                }
             } else {
                 // User has explicitly signed out - ensure we're not authenticated
                 // Clear any lingering Firebase Auth state
@@ -144,7 +148,6 @@ final class NebRatingsStore {
         }
     }
     
-    
     func signIn(userID: String) async {
         // Clear the explicit sign out flag BEFORE setting authenticated state
         // This prevents the auth state listener from interfering with sign-in
@@ -188,10 +191,10 @@ final class NebRatingsStore {
             
             // Sort: default list first, then by creation date (newest first)
             fetchedLists.sort { list1, list2 in
-                if list1.isDefault && !list2.isDefault {
+                if list1.isDefault, !list2.isDefault {
                     return true
                 }
-                if !list1.isDefault && list2.isDefault {
+                if !list1.isDefault, list2.isDefault {
                     return false
                 }
                 return list1.createdAt > list2.createdAt
@@ -220,10 +223,10 @@ final class NebRatingsStore {
             
             // Sort: default list first, then by creation date (newest first)
             showLists.sort { list1, list2 in
-                if list1.isDefault && !list2.isDefault {
+                if list1.isDefault, !list2.isDefault {
                     return true
                 }
-                if !list1.isDefault && list2.isDefault {
+                if !list1.isDefault, list2.isDefault {
                     return false
                 }
                 return list1.createdAt > list2.createdAt
@@ -602,9 +605,10 @@ final class NebRatingsStore {
     }
     
     func queryReviews(searchText: String? = nil,
-                    category: Show.Category? = nil,
-                    minimumRating: Double? = nil,
-                    showID: Int? = nil) async {
+                      category: Show.Category? = nil,
+                      minimumRating: Double? = nil,
+                      showID: Int? = nil) async
+    {
         isQueryingReviews = true
         defer { isQueryingReviews = false }
         
@@ -665,7 +669,8 @@ final class NebRatingsStore {
     
     func updateProfileName(_ newName: String) async throws {
         guard let userID = authService.getCurrentUserID(),
-              !newName.trimmingCharacters(in: .whitespaces).isEmpty else {
+              !newName.trimmingCharacters(in: .whitespaces).isEmpty
+        else {
             throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID or empty name"])
         }
         
@@ -803,7 +808,7 @@ final class NebRatingsStore {
                     let existingReviewQuery = ReviewQuery(
                         showID: showID,
                         authorID: userID,
-                        limit: 100  // Get all reviews to filter by season client-side
+                        limit: 100 // Get all reviews to filter by season client-side
                     )
                     let existingReviews = try await reviewService.queryReviews(existingReviewQuery)
                     
@@ -884,7 +889,6 @@ final class NebRatingsStore {
     }
     
     func updateReview(_ review: Review, comment: String, rating: Double) {
-        
         // Create updated review with new comment and rating, keeping season from original
         let updatedReview = Review(
             id: review.id,
@@ -940,7 +944,6 @@ final class NebRatingsStore {
     }
     
     func deleteReview(_ review: Review) {
-        
         // Remove from local state immediately for optimistic UI
         reviews = reviews.filter { $0.id != review.id }
         
@@ -970,5 +973,8 @@ final class NebRatingsStore {
             }
         }
     }
+    
+    func submitContactForm(_ form: ContactForm) async throws {
+        try await contactService.submitContactForm(form)
+    }
 }
-

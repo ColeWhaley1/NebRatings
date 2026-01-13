@@ -1,0 +1,32 @@
+//
+//  Config.xcconfig.template
+//  NebRatings
+//
+//  This is a template file. Copy this to Config.xcconfig and set your API keys.
+//  Config.xcconfig is in .gitignore and should NOT be committed to version control.
+//
+
+// Configuration settings file format documentation can be found at:
+// https://developer.apple.com/documentation/xcode/adding-a-build-configuration-file-to-your-project
+
+// Option 1: Set values directly in this file (for local development)
+// TMDB_API_KEY = your_api_key_here
+// TMDB_API_READ_ACCESS_TOKEN = your_access_token_here
+
+// Option 2: Use environment variables (recommended for CI/CD)
+// Set these as environment variables before building:
+// export TMDB_API_KEY=your_api_key_here
+// export TMDB_API_READ_ACCESS_TOKEN=your_access_token_here
+// Then this file will automatically use those values
+
+// Option 3: Set in Xcode Build Settings
+// 1. Select your project in Xcode
+// 2. Select your target
+// 3. Go to Build Settings
+// 4. Click the "+" button and select "Add User-Defined Setting"
+// 5. Add TMDB_API_KEY and TMDB_API_READ_ACCESS_TOKEN with your values
+
+// Current configuration uses environment variables with fallback to build settings
+TMDB_API_KEY = $(TMDB_API_KEY)
+TMDB_API_READ_ACCESS_TOKEN = $(TMDB_API_READ_ACCESS_TOKEN)
+
