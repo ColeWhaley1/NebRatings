@@ -6,4 +6,5 @@ DerivedData/
 # Firebase
 GoogleService-Info.plist
 
-Config.xcconfig
+# Local configuration with secrets (do not commit)
+Config.local.xcconfig

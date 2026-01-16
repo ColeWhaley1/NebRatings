@@ -1,0 +1,28 @@
+//
+//  Config.xcconfig
+//  NebRatings
+//
+//  Created by Cole Whaley on 11/29/25.
+//
+//  This file can be committed to version control. It includes Config.local.xcconfig
+//  if it exists, and falls back to environment variables or Xcode build settings.
+//
+
+// Configuration settings file format documentation can be found at:
+// https://developer.apple.com/documentation/xcode/adding-a-build-configuration-file-to-your-project
+
+// Include local config file if it exists (for local development)
+// Config.local.xcconfig is gitignored and contains actual API keys
+#include? "Config.local.xcconfig"
+
+// These values can be set via (in order of precedence):
+// 1. Config.local.xcconfig (if it exists)
+// 2. Environment variables (TMDB_API_KEY and TMDB_API_READ_ACCESS_TOKEN)
+// 3. Xcode build settings (User-Defined settings)
+// 4. Command line: xcodebuild TMDB_API_KEY=xxx TMDB_API_READ_ACCESS_TOKEN=xxx
+
+// Fallback to environment variables or build settings if Config.local.xcconfig doesn't exist
+// This allows CI/CD systems (like Xcode Cloud) to set these via environment variables
+TMDB_API_KEY = $(TMDB_API_KEY)
+TMDB_API_READ_ACCESS_TOKEN = $(TMDB_API_READ_ACCESS_TOKEN)
+
