@@ -15,7 +15,7 @@ struct WatchProviderInfo: Identifiable, Hashable {
 }
 
 struct Show: Identifiable, Hashable {
-    enum Category: String, CaseIterable, Identifiable {
+    enum Category: String, CaseIterable, Identifiable, Codable {
         case movie = "Movie"
         case series = "Series"
 

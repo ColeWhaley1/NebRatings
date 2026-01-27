@@ -54,7 +54,7 @@ struct ListsView: View {
                                     Text(list.name)
                                         .font(.headline)
                                     
-                                    Text("\(list.showIDs.count) \(list.showIDs.count == 1 ? "item" : "items")")
+                                    Text("\(list.showReferences.count) \(list.showReferences.count == 1 ? "item" : "items")")
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
@@ -299,15 +299,18 @@ struct ListDetailView: View {
                 }
             
             Section {
-                if currentList.showIDs.isEmpty {
+                if currentList.showReferences.isEmpty {
                     ContentUnavailableView(
                         "Empty List",
                         systemImage: "list.bullet.rectangle",
                         description: Text("Add shows to this list from the Discover tab.")
                     )
                 } else {
-                    ForEach(currentList.showIDs, id: \.self) { showID in
-                        if let show = store.showCache[showID] {
+                    ForEach(currentList.showReferences, id: \.id) { reference in
+                        // Validate that the cached show's ID and category match the reference
+                        if let show = store.showCache[reference.id], 
+                           show.id == reference.id,
+                           show.category == reference.category {
                             NavigationLink(value: show) {
                                 ShowRow(show: show)
                             }
@@ -316,11 +319,11 @@ struct ListDetailView: View {
                                     Task { @MainActor in
                                         // Optimistically update local state for smooth animation
                                         if var updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
-                                            updatedList.showIDs.removeAll { $0 == showID }
+                                            updatedList.showReferences.removeAll { $0.id == reference.id && $0.category == reference.category }
                                             currentList = updatedList
                                         }
                                         // Then sync with Firebase
-                                        await store.removeShowFromList(showID, listID: currentList.id)
+                                        await store.removeShowFromList(show, listID: currentList.id)
                                         // Final sync with store
                                         if let finalList = store.showLists.first(where: { $0.id == currentList.id }) {
                                             currentList = finalList
@@ -342,9 +345,13 @@ struct ListDetailView: View {
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     Task {
-                                        await store.removeShowFromList(showID, listID: currentList.id)
-                                        // Update local state after removal
-                                        if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                        // Remove by reference
+                                        if var updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+                                            updatedList.showReferences.removeAll { $0.id == reference.id && $0.category == reference.category }
+                                            // Update in Firebase
+                                            if let userID = store.authService.getCurrentUserID() {
+                                                try? await store.listService.updateList(updatedList, for: userID)
+                                            }
                                             currentList = updatedList
                                         }
                                     }
@@ -358,15 +365,26 @@ struct ListDetailView: View {
                         Task { @MainActor in
                             // Optimistically update local state for smooth animation
                             var updatedList = currentList
-                            let showIDsToRemove = indexSet.compactMap { index in
-                                index < currentList.showIDs.count ? currentList.showIDs[index] : nil
+                            let referencesToRemove = indexSet.compactMap { index in
+                                index < currentList.showReferences.count ? currentList.showReferences[index] : nil
                             }
-                            updatedList.showIDs.removeAll { showIDsToRemove.contains($0) }
+                            
+                            // Remove references from local state
+                            for reference in referencesToRemove {
+                                updatedList.showReferences.removeAll { $0.id == reference.id && $0.category == reference.category }
+                            }
                             currentList = updatedList
                             
-                            // Then sync with Firebase
-                            for showID in showIDsToRemove {
-                                await store.removeShowFromList(showID, listID: currentList.id)
+                            // Then sync with Firebase - try to get Show objects from cache
+                            for reference in referencesToRemove {
+                                if let show = store.showCache[reference.id],
+                                   show.id == reference.id,
+                                   show.category == reference.category {
+                                    await store.removeShowFromList(show, listID: currentList.id)
+                                } else {
+                                    // Fallback to ID-only removal if show not in cache
+                                    await store.removeShowFromList(reference.id, listID: currentList.id)
+                                }
                             }
                             
                             // Final sync with store
@@ -618,21 +636,50 @@ struct ListDetailView: View {
     }
     
     private func loadMissingShows() async {
-        // Find shows that aren't in the cache
-        let missingShowIDs = currentList.showIDs.filter { store.showCache[$0] == nil }
+        // Find shows that aren't in the cache or have wrong category
+        let missingReferences = currentList.showReferences.filter { reference in
+            guard let cached = store.showCache[reference.id] else {
+                return true // Not in cache
+            }
+            // Also reload if category doesn't match (for backwards compatibility migration)
+            return cached.category != reference.category
+        }
         
-        // Fetch all missing shows in parallel
+        // Fetch all missing shows in parallel using their stored categories
         await withTaskGroup(of: Void.self) { group in
-            for showID in missingShowIDs {
+            for reference in missingReferences {
                 group.addTask {
-                    // Try fetching as a movie first
-                    if await self.store.fetchShowDetails(id: showID, category: .movie) != nil {
-                        return // Success
+                    // Use the stored category from the reference
+                    if let show = await self.store.fetchShowDetails(id: reference.id, category: reference.category) {
+                        // Verify the fetched show's ID and category match
+                        if show.id == reference.id && show.category == reference.category {
+                            return // Success - correct show cached
+                        }
                     }
                     
-                    // If movie failed, try as a series
-                    if await self.store.fetchShowDetails(id: showID, category: .series) != nil {
-                        return // Success
+                    // If the stored category failed, try the other category (for backwards compatibility)
+                    let otherCategory: Show.Category = reference.category == .movie ? .series : .movie
+                    if let show = await self.store.fetchShowDetails(id: reference.id, category: otherCategory) {
+                        // Verify the fetched show's ID matches
+                        if show.id == reference.id {
+                            // Update the reference with the correct category
+                            await MainActor.run {
+                                if let listIndex = self.store.showLists.firstIndex(where: { $0.id == self.currentList.id }) {
+                                    var updatedList = self.store.showLists[listIndex]
+                                    if let refIndex = updatedList.showReferences.firstIndex(where: { $0.id == reference.id }) {
+                                        updatedList.showReferences[refIndex] = ShowReference(id: show.id, category: show.category)
+                                        self.store.showLists[listIndex] = updatedList
+                                        // Update in Firebase
+                                        Task {
+                                            if let userID = self.store.authService.getCurrentUserID() {
+                                                try? await self.store.listService.updateList(updatedList, for: userID)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            return // Success - correct show cached with updated category
+                        }
                     }
                     
                     // If both failed, skip it

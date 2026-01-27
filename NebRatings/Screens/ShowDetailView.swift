@@ -760,10 +760,10 @@ struct ShowDetailView: View {
     private var addToListButton: some View {
         // Get lists containing the show
         let listsContainingShow = store.showLists.filter { list in
-            list.showIDs.contains(displayShow.id)
+            list.contains(show: displayShow)
         }
         let listsNotContainingShow = store.showLists.filter { list in
-            !list.showIDs.contains(displayShow.id)
+            !list.contains(show: displayShow)
         }
         let allListsContainingShow = listsContainingShow.count
         
@@ -874,19 +874,19 @@ struct ShowDetailView: View {
     
     private func updateShowLists() async {
         let currentListIDs = Set(store.showLists.filter { list in
-            list.showIDs.contains(displayShow.id)
+            list.contains(show: displayShow)
         }.map { $0.id })
         
         // Find lists to add
         let listsToAdd = selectedListIDs.subtracting(currentListIDs)
         for listID in listsToAdd {
-            await store.addShowToList(displayShow.id, listID: listID)
+            await store.addShowToList(displayShow, listID: listID)
         }
         
         // Find lists to remove
         let listsToRemove = currentListIDs.subtracting(selectedListIDs)
         for listID in listsToRemove {
-            await store.removeShowFromList(displayShow.id, listID: listID)
+            await store.removeShowFromList(displayShow, listID: listID)
         }
     }
     

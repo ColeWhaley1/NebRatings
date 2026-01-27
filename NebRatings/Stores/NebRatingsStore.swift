@@ -27,7 +27,7 @@ final class NebRatingsStore {
     private let catalogService: CatalogService
     private let reviewService: ReviewService
     private let profileService: ProfileService
-    private let listService: ListService
+    let listService: ListService // Made internal for ListsView migration logic
     private let contactService: ContactService
     let authService: AuthService
     
@@ -298,7 +298,8 @@ final class NebRatingsStore {
         }
     }
     
-    func addShowToList(_ showID: Int, listID: String) async {
+    // New method that accepts Show object (includes category)
+    func addShowToList(_ show: Show, listID: String) async {
         guard let userID = authService.getCurrentUserID() else {
             return
         }
@@ -314,13 +315,15 @@ final class NebRatingsStore {
             return
         }
         
+        let reference = ShowReference(id: show.id, category: show.category)
+        
         // Check if show is already in the list
-        guard !updatedList.showIDs.contains(showID) else {
+        guard !updatedList.showReferences.contains(reference) else {
             return
         }
         
         // Add show to list
-        updatedList.showIDs.append(showID)
+        updatedList.showReferences.append(reference)
         showLists[listIndex] = updatedList
         
         // Update in Firebase
@@ -328,12 +331,57 @@ final class NebRatingsStore {
             try await listService.updateList(updatedList, for: userID)
         } catch {
             // Revert on error
-            updatedList.showIDs.removeAll { $0 == showID }
+            updatedList.showReferences.removeAll { $0.id == show.id && $0.category == show.category }
             showLists[listIndex] = updatedList
         }
     }
     
-    func removeShowFromList(_ showID: Int, listID: String) async {
+    // Backwards compatibility method that accepts just ID
+    func addShowToList(_ showID: Int, listID: String) async {
+        // Try to find the show in cache to get its category
+        if let show = showCache[showID] {
+            await addShowToList(show, listID: listID)
+        } else {
+            // If not in cache, create a reference with default category (will be corrected when loaded)
+            // This maintains backwards compatibility
+            guard let userID = authService.getCurrentUserID() else {
+                return
+            }
+            
+            guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+                return
+            }
+            
+            var updatedList = showLists[listIndex]
+            
+            // Check permissions
+            guard updatedList.canEdit(userID: userID) else {
+                return
+            }
+            
+            // Check if show is already in the list
+            guard !updatedList.showReferences.contains(where: { $0.id == showID }) else {
+                return
+            }
+            
+            // Add with default category (will be corrected when show is loaded)
+            let reference = ShowReference(id: showID, category: .movie)
+            updatedList.showReferences.append(reference)
+            showLists[listIndex] = updatedList
+            
+            // Update in Firebase
+            do {
+                try await listService.updateList(updatedList, for: userID)
+            } catch {
+                // Revert on error
+                updatedList.showReferences.removeAll { $0.id == showID }
+                showLists[listIndex] = updatedList
+            }
+        }
+    }
+    
+    // New method that accepts Show object (includes category)
+    func removeShowFromList(_ show: Show, listID: String) async {
         guard let userID = authService.getCurrentUserID() else {
             return
         }
@@ -350,7 +398,7 @@ final class NebRatingsStore {
         }
         
         // Remove show from list
-        updatedList.showIDs.removeAll { $0 == showID }
+        updatedList.showReferences.removeAll { $0.id == show.id && $0.category == show.category }
         showLists[listIndex] = updatedList
         
         // Update in Firebase
@@ -358,7 +406,39 @@ final class NebRatingsStore {
             try await listService.updateList(updatedList, for: userID)
         } catch {
             // Revert on error
-            updatedList.showIDs.append(showID)
+            let reference = ShowReference(id: show.id, category: show.category)
+            updatedList.showReferences.append(reference)
+            showLists[listIndex] = updatedList
+        }
+    }
+    
+    // Backwards compatibility method that accepts just ID
+    func removeShowFromList(_ showID: Int, listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Check permissions
+        guard updatedList.canEdit(userID: userID) else {
+            return
+        }
+        
+        // Remove show from list (remove all references with this ID, regardless of category)
+        updatedList.showReferences.removeAll { $0.id == showID }
+        showLists[listIndex] = updatedList
+        
+        // Update in Firebase
+        do {
+            try await listService.updateList(updatedList, for: userID)
+        } catch {
+            // Revert on error - we can't fully revert without knowing the category
+            // This is a limitation of backwards compatibility
             showLists[listIndex] = updatedList
         }
     }
@@ -689,16 +769,25 @@ final class NebRatingsStore {
     }
     
     func fetchShowDetails(id: Int, category: Show.Category) async -> Show? {
-        // Check cache first
+        // Check cache first, but validate the cached show matches the requested ID
         if let cached = showCache[id] {
-            return cached
+            // Verify the cached show's ID matches what we're looking for
+            if cached.id == id {
+                return cached
+            } else {
+                // Cached show doesn't match - remove it and refetch
+                showCache.removeValue(forKey: id)
+            }
         }
         
         // Fetch from API
         do {
             if let show = try await catalogService.fetchShowDetails(id: String(id), category: category) {
-                showCache[id] = show
-                return show
+                // Verify the fetched show's ID matches before caching
+                if show.id == id {
+                    showCache[id] = show
+                    return show
+                }
             }
         } catch {
             // Error fetching show details
@@ -708,12 +797,25 @@ final class NebRatingsStore {
     }
     
     func fetchShowDetailsByTMDBID(tmdbID: Int, category: Show.Category) async -> Show? {
+        // Check cache first, but validate the cached show matches the requested ID
+        if let cached = showCache[tmdbID] {
+            // Verify the cached show's ID matches what we're looking for
+            if cached.id == tmdbID {
+                return cached
+            } else {
+                // Cached show doesn't match - remove it and refetch
+                showCache.removeValue(forKey: tmdbID)
+            }
+        }
+        
         // Fetch from API using TMDB ID
         do {
             if let show = try await catalogService.fetchShowDetails(id: String(tmdbID), category: category) {
-                // Cache by the show's UUID if it exists
-                showCache[show.id] = show
-                return show
+                // Verify the fetched show's ID matches before caching
+                if show.id == tmdbID {
+                    showCache[show.id] = show
+                    return show
+                }
             }
         } catch {
             // Error fetching show details by TMDB ID
@@ -729,9 +831,15 @@ final class NebRatingsStore {
     }
 
     func show(for review: Review) -> Show? {
-        // Check cache first
+        // Check cache first, but validate the cached show matches the requested ID
         if let cached = showCache[review.showID] {
-            return cached
+            // Verify the cached show's ID matches what we're looking for
+            if cached.id == review.showID {
+                return cached
+            } else {
+                // Cached show doesn't match - remove it
+                showCache.removeValue(forKey: review.showID)
+            }
         }
         
         // Check current shows list
@@ -755,7 +863,10 @@ final class NebRatingsStore {
         // Fetch full details in background and cache it
         Task {
             if let fullShow = await fetchShowDetailsByTMDBID(tmdbID: review.showID, category: review.showCategory) {
-                showCache[review.showID] = fullShow
+                // Verify the fetched show's ID matches before caching
+                if fullShow.id == review.showID {
+                    showCache[review.showID] = fullShow
+                }
             }
         }
         
