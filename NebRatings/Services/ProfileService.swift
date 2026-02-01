@@ -153,6 +153,9 @@ struct FirebaseProfileService: ProfileService {
                 showCategory = .movie
             }
             
+            // Parse season (optional field) - for season-specific reviews
+            let season: Int? = data["season"] as? Int
+            
             // Create Review model matching the struct exactly
             let review = Review(
                 id: id,
@@ -162,7 +165,8 @@ struct FirebaseProfileService: ProfileService {
                 author: author,
                 comment: comment,
                 nebRating: nebRating,
-                timestamp: timestamp
+                timestamp: timestamp,
+                season: season
             )
             
             reviews.append(review)
