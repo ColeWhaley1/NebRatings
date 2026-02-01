@@ -773,7 +773,12 @@ final class NebRatingsStore {
         if let cached = showCache[id] {
             // Verify the cached show's ID matches what we're looking for
             if cached.id == id {
-                return cached
+                // For series, only use cache if we have full details (numberOfSeasons); otherwise refetch
+                if cached.category == .series, cached.numberOfSeasons == nil {
+                    showCache.removeValue(forKey: id)
+                } else {
+                    return cached
+                }
             } else {
                 // Cached show doesn't match - remove it and refetch
                 showCache.removeValue(forKey: id)
@@ -801,7 +806,12 @@ final class NebRatingsStore {
         if let cached = showCache[tmdbID] {
             // Verify the cached show's ID matches what we're looking for
             if cached.id == tmdbID {
-                return cached
+                // For series, only use cache if we have full details (numberOfSeasons); otherwise refetch
+                if cached.category == .series, cached.numberOfSeasons == nil {
+                    showCache.removeValue(forKey: tmdbID)
+                } else {
+                    return cached
+                }
             } else {
                 // Cached show doesn't match - remove it and refetch
                 showCache.removeValue(forKey: tmdbID)

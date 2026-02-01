@@ -224,8 +224,10 @@ struct ShowDetailView: View {
     }
     
     private func loadShowDetails() async {
-        // show.id is now the TMDB ID, so we can fetch details if genres are empty
-        if show.genres.isEmpty {
+        // show.id is now the TMDB ID; fetch details when missing (empty genres or, for series, missing numberOfSeasons)
+        let needsDetails = show.genres.isEmpty
+            || (show.category == .series && show.numberOfSeasons == nil)
+        if needsDetails {
             if let detailed = await store.fetchShowDetailsByTMDBID(tmdbID: show.id, category: show.category) {
                 detailedShow = detailed
 
