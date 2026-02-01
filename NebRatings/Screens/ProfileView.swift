@@ -50,6 +50,9 @@ struct ProfileView: View {
             .navigationDestination(for: Show.self) { show in
                 ShowDetailView(show: show)
             }
+            .navigationDestination(for: ShowWithContext.self) { ctx in
+                ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
+            }
             .refreshable {
                 await store.loadUserProfile()
             }
@@ -261,7 +264,7 @@ struct ProfileView: View {
                                                 let show = store.show(for: review)
                                                 if let show = show {
                                                     Button {
-                                                        navigationPath.append(show)
+                                                        navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
                                                     } label: {
                                                         ReviewCard(review: review,
                                                                    showTitle: show.title,

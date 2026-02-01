@@ -21,6 +21,8 @@ struct ShowDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     let show: Show
+    /// When set, filters the reviews section to this season (used when navigating from a season-specific review).
+    var initialSeasonFilter: Int? = nil
 
     @State private var newComment = ""
     @State private var newNebs: Double = 5 // Default to 5 out of 10
@@ -204,6 +206,11 @@ struct ShowDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
         .task {
+            // Apply initial season filter when navigating from a season-specific review (e.g., from feed or profile)
+            if let season = initialSeasonFilter {
+                filterSeason = season
+                selectedSeason = season
+            }
             await loadShowDetails()
             await loadShowReviews()
             await loadRecommendations()

@@ -45,6 +45,9 @@ struct ReviewsFeedView: View {
             .navigationDestination(for: Show.self) { show in
                 ShowDetailView(show: show)
             }
+            .navigationDestination(for: ShowWithContext.self) { ctx in
+                ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
+            }
             .searchable(text: $searchText, prompt: "Search reviews")
             .onAppear {
                 performQuery()
@@ -126,7 +129,7 @@ struct ReviewsFeedView: View {
                                    showCategory: show.category,
                                    isOwnReview: isOwnReview,
                                    onTap: {
-                                       navigationPath.append(show)
+                                       navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
                                    },
                                    useLighterBackground: true
                                    )
