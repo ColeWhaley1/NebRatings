@@ -286,6 +286,10 @@ private struct ChangePasswordSheet: View {
 extension SettingsView {
     private var contactSection: some View {
         Section("Support") {
+            Button(action: { AppStoreReviewHelper.openAppStoreReviewPage() }) {
+                Label("Rate NebRatings", systemImage: "star.fill")
+            }
+            
             NavigationLink(destination: ContactFormView()) {
                 Label("Contact Us", systemImage: "envelope")
             }

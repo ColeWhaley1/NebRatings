@@ -30,3 +30,6 @@
 TMDB_API_KEY = $(TMDB_API_KEY)
 TMDB_API_READ_ACCESS_TOKEN = $(TMDB_API_READ_ACCESS_TOKEN)
 
+// App Store ID for "Rate NebRatings" (get from App Store Connect → your app → App Information)
+APP_STORE_ID = $(APP_STORE_ID)
+

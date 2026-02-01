@@ -964,6 +964,10 @@ final class NebRatingsStore {
                 try await reviewService.submit(review: newReview)
                 // Refresh reviews for this show
                 await queryReviews(showID: show.id)
+                // Maybe show in-app review prompt after positive engagement
+                await MainActor.run {
+                    AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
+                }
             } catch {
                 // Handle error
             }
@@ -1004,6 +1008,10 @@ final class NebRatingsStore {
             try await reviewService.update(review: updatedReview)
             // Refresh reviews for this show
             await queryReviews(showID: review.showID)
+            // Maybe show in-app review prompt after positive engagement
+            await MainActor.run {
+                AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
+            }
         } catch {
             // Error updating review
         }
@@ -1045,6 +1053,10 @@ final class NebRatingsStore {
                 try await reviewService.update(review: updatedReview)
                 // Refresh reviews to ensure consistency with Firestore
                 await queryReviews(showID: review.showID)
+                // Maybe show in-app review prompt after positive engagement
+                await MainActor.run {
+                    AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
+                }
             } catch {
                 // Handle error - revert optimistic update
                 // Revert to original review
