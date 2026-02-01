@@ -14,6 +14,8 @@ protocol AuthService {
     func signIn(email: String, password: String) async throws -> String // Returns user ID
     func signOut() async throws
     func deleteAccount() async throws // Deletes the current authenticated user account
+    func sendPasswordReset(email: String) async throws
+    func updatePassword(currentPassword: String, newPassword: String) async throws
     func getCurrentUserID() -> String?
     func getCurrentUser() -> User?
 }
@@ -50,6 +52,28 @@ struct FirebaseAuthService: AuthService {
         try await user.delete()
     }
     
+    func sendPasswordReset(email: String) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        try await Auth.auth().sendPasswordReset(withEmail: email)
+    }
+    
+    func updatePassword(currentPassword: String, newPassword: String) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseAuth", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        guard let user = Auth.auth().currentUser else {
+            throw NSError(domain: "FirebaseAuth", code: -2, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        guard let email = user.email else {
+            throw NSError(domain: "FirebaseAuth", code: -3, userInfo: [NSLocalizedDescriptionKey: "User has no email address"])
+        }
+        let credential = EmailAuthProvider.credential(withEmail: email, password: currentPassword)
+        try await user.reauthenticate(with: credential)
+        try await user.updatePassword(to: newPassword)
+    }
+    
     func getCurrentUserID() -> String? {
         guard FirebaseApp.app() != nil else { return nil }
         return Auth.auth().currentUser?.uid
@@ -81,6 +105,14 @@ struct MockAuthService: AuthService {
     
     func deleteAccount() async throws {
         // Mock implementation - no-op
+    }
+    
+    func sendPasswordReset(email: String) async throws {
+        try await Task.sleep(nanoseconds: 500_000_000)
+    }
+    
+    func updatePassword(currentPassword: String, newPassword: String) async throws {
+        try await Task.sleep(nanoseconds: 500_000_000)
     }
     
     func getCurrentUserID() -> String? {
