@@ -298,6 +298,37 @@ struct ListDetailView: View {
                     }
                 }
             
+            // Auto-remove setting: only for single-owner lists (no contributors)
+            if isOwner && currentList.contributorIDs.isEmpty {
+                Section {
+                    Toggle(isOn: Binding(
+                        get: { currentList.autoRemoveOnReview },
+                        set: { newValue in
+                            var updated = currentList
+                            updated.autoRemoveOnReview = newValue
+                            currentList = updated
+                            Task {
+                                await store.updateAutoRemoveOnReview(listID: currentList.id, enabled: newValue)
+                                await loadListData()
+                            }
+                        }
+                    )) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Remove when reviewed")
+                                .font(.body)
+                            Text("Automatically remove shows from this list after you review them")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .tint(.purple)
+                } header: {
+                    Text("List Settings")
+                } footer: {
+                    Text("This option is only available for lists you own with no other contributors.")
+                }
+            }
+            
             Section {
                 if currentList.showReferences.isEmpty {
                     ContentUnavailableView(
@@ -306,13 +337,13 @@ struct ListDetailView: View {
                         description: Text("Add shows to this list from the Discover tab.")
                     )
                 } else {
-                    ForEach(currentList.showReferences, id: \.id) { reference in
+                    ForEach(currentList.showReferences, id: \.self) { reference in
                         // Validate that the cached show's ID and category match the reference
                         if let show = store.showCache[reference.id], 
                            show.id == reference.id,
                            show.category == reference.category {
                             NavigationLink(value: show) {
-                                ShowRow(show: show)
+                                ShowRow(show: show, seasonsLabel: reference.seasonsLabel)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
@@ -495,6 +526,11 @@ struct ListDetailView: View {
     }
     
     private func loadListData() async {
+        // Sync currentList from store (e.g. after autoRemoveOnReview toggle)
+        if let updatedList = store.showLists.first(where: { $0.id == currentList.id }) {
+            currentList = updatedList
+        }
+        
         // Load owner profile
         if let owner = await store.fetchProfile(userID: currentList.ownerID) {
             ownerProfile = owner
@@ -667,7 +703,7 @@ struct ListDetailView: View {
                                 if let listIndex = self.store.showLists.firstIndex(where: { $0.id == self.currentList.id }) {
                                     var updatedList = self.store.showLists[listIndex]
                                     if let refIndex = updatedList.showReferences.firstIndex(where: { $0.id == reference.id }) {
-                                        updatedList.showReferences[refIndex] = ShowReference(id: show.id, category: show.category)
+                                        updatedList.showReferences[refIndex] = ShowReference(id: show.id, category: show.category, seasons: reference.seasons)
                                         self.store.showLists[listIndex] = updatedList
                                         // Update in Firebase
                                         Task {

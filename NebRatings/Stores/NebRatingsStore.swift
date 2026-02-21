@@ -289,17 +289,42 @@ final class NebRatingsStore {
             try await listService.updateList(updatedList, for: userID)
         } catch {
             // Revert optimistic update
-            if let originalList = showLists.first(where: { $0.id == listID }) {
-                var revertedList = originalList
-                // Find the original name from the error or reload
-                // For now, just reload lists to get the correct state
-                await loadUserLists()
-            }
+            await loadUserLists()
         }
     }
     
-    // New method that accepts Show object (includes category)
-    func addShowToList(_ show: Show, listID: String) async {
+    /// Updates autoRemoveOnReview for a list. Only available when contributorIDs.isEmpty (single-owner list).
+    func updateAutoRemoveOnReview(listID: String, enabled: Bool) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        
+        // Only owner can change this; only single-owner lists support it
+        guard updatedList.ownerID == userID else {
+            return
+        }
+        guard updatedList.contributorIDs.isEmpty else {
+            return
+        }
+        
+        updatedList.autoRemoveOnReview = enabled
+        showLists[listIndex] = updatedList
+        
+        do {
+            try await listService.updateList(updatedList, for: userID)
+        } catch {
+            await loadUserLists()
+        }
+    }
+    
+    // New method that accepts Show object (includes category). seasons: nil = entire show; [1,2] = specific seasons (series only).
+    func addShowToList(_ show: Show, listID: String, seasons: [Int]? = nil) async {
         guard let userID = authService.getCurrentUserID() else {
             return
         }
@@ -315,24 +340,30 @@ final class NebRatingsStore {
             return
         }
         
-        let reference = ShowReference(id: show.id, category: show.category)
-        
-        // Check if show is already in the list
-        guard !updatedList.showReferences.contains(reference) else {
-            return
+        // For movies, always use nil (entire show). Empty array = entire show.
+        let effectiveSeasons: [Int]?
+        if show.category == .series, let s = seasons, !s.isEmpty {
+            effectiveSeasons = s
+        } else {
+            effectiveSeasons = nil
         }
         
-        // Add show to list
-        updatedList.showReferences.append(reference)
+        let reference = ShowReference(id: show.id, category: show.category, seasons: effectiveSeasons)
+        
+        if let existingIndex = updatedList.showReferences.firstIndex(where: { $0.id == show.id && $0.category == show.category }) {
+            // Show already in list - update seasons (merge or replace)
+            updatedList.showReferences[existingIndex] = reference
+        } else {
+            updatedList.showReferences.append(reference)
+        }
         showLists[listIndex] = updatedList
         
         // Update in Firebase
         do {
             try await listService.updateList(updatedList, for: userID)
         } catch {
-            // Revert on error
-            updatedList.showReferences.removeAll { $0.id == show.id && $0.category == show.category }
-            showLists[listIndex] = updatedList
+            // Revert on error - reload lists from server
+            await loadUserLists()
         }
     }
     
@@ -409,6 +440,45 @@ final class NebRatingsStore {
             let reference = ShowReference(id: show.id, category: show.category)
             updatedList.showReferences.append(reference)
             showLists[listIndex] = updatedList
+        }
+    }
+    
+    /// Removes show from lists that have autoRemoveOnReview enabled. Only applies to single-owner lists (contributorIDs.isEmpty).
+    private func performAutoRemoveFromLists(showID: Int, showCategory: Show.Category) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+        
+        for list in showLists where list.contributorIDs.isEmpty
+            && list.autoRemoveOnReview
+            && list.ownerID == userID
+            && list.showReferences.contains(where: { $0.id == showID && $0.category == showCategory }) {
+            await removeShowFromList(showID: showID, showCategory: showCategory, listID: list.id)
+        }
+    }
+    
+    /// Overload for removal by id+category (used by auto-remove).
+    private func removeShowFromList(showID: Int, showCategory: Show.Category, listID: String) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+        
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            return
+        }
+        
+        var updatedList = showLists[listIndex]
+        guard updatedList.canEdit(userID: userID) else {
+            return
+        }
+        
+        updatedList.showReferences.removeAll { $0.id == showID && $0.category == showCategory }
+        showLists[listIndex] = updatedList
+        
+        do {
+            try await listService.updateList(updatedList, for: userID)
+        } catch {
+            await loadUserLists()
         }
     }
     
@@ -919,7 +989,7 @@ final class NebRatingsStore {
                 }
                 
                 if let existingReview = localExistingReview {
-                    // User already has a review for this show/season - update it
+                    // User already has a review for this show/season - update it (updateReview handles auto-remove)
                     await updateReview(existingReview, comment: comment, rating: rating, season: season)
                     return
                 }
@@ -935,7 +1005,7 @@ final class NebRatingsStore {
                     
                     // Filter by matching season (both nil means "entire show")
                     if let existingReview = existingReviews.first(where: { $0.season == season }) {
-                        // User already has a review for this season - update it
+                        // User already has a review for this season - update it (updateReview handles auto-remove)
                         await updateReview(existingReview, comment: comment, rating: rating, season: season)
                         return
                     }
@@ -964,6 +1034,8 @@ final class NebRatingsStore {
                 try await reviewService.submit(review: newReview)
                 // Refresh reviews for this show
                 await queryReviews(showID: show.id)
+                // Auto-remove from lists with that setting (single-owner lists only)
+                await performAutoRemoveFromLists(showID: showID, showCategory: show.category)
                 // Maybe show in-app review prompt after positive engagement
                 await MainActor.run {
                     AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
@@ -1008,6 +1080,8 @@ final class NebRatingsStore {
             try await reviewService.update(review: updatedReview)
             // Refresh reviews for this show
             await queryReviews(showID: review.showID)
+            // Auto-remove from lists with that setting (single-owner lists only)
+            await performAutoRemoveFromLists(showID: review.showID, showCategory: review.showCategory)
             // Maybe show in-app review prompt after positive engagement
             await MainActor.run {
                 AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
@@ -1053,6 +1127,8 @@ final class NebRatingsStore {
                 try await reviewService.update(review: updatedReview)
                 // Refresh reviews to ensure consistency with Firestore
                 await queryReviews(showID: review.showID)
+                // Auto-remove from lists with that setting (single-owner lists only)
+                await performAutoRemoveFromLists(showID: review.showID, showCategory: review.showCategory)
                 // Maybe show in-app review prompt after positive engagement
                 await MainActor.run {
                     AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)

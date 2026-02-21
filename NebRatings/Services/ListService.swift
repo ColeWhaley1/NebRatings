@@ -33,11 +33,15 @@ struct FirebaseListService: ListService {
         let finalOwnerID = list.ownerID.isEmpty ? userID : list.ownerID
         
         // Convert showReferences to Firestore format
-        let showReferencesData = list.showReferences.map { ref in
-            [
+        let showReferencesData = list.showReferences.map { ref -> [String: Any] in
+            var data: [String: Any] = [
                 "id": ref.id,
                 "category": ref.category.rawValue
             ]
+            if let seasons = ref.seasons, !seasons.isEmpty {
+                data["seasons"] = seasons
+            }
+            return data
         }
         
         let listData: [String: Any] = [
@@ -47,7 +51,8 @@ struct FirebaseListService: ListService {
             "createdAt": Timestamp(date: list.createdAt),
             "isDefault": list.isDefault,
             "ownerID": finalOwnerID,
-            "contributorIDs": list.contributorIDs
+            "contributorIDs": list.contributorIDs,
+            "autoRemoveOnReview": list.autoRemoveOnReview
         ]
         
         
@@ -111,12 +116,33 @@ struct FirebaseListService: ListService {
             var showReferences: [ShowReference] = []
             if let referencesArray = data["showReferences"] as? [[String: Any]] {
                 showReferences = referencesArray.compactMap { refData in
-                    guard let id = refData["id"] as? Int,
-                          let categoryString = refData["category"] as? String,
-                          let category = Show.Category(rawValue: categoryString) else {
-                        return nil
+                    // Firestore may return numbers as Int, Int64, or NSNumber
+                    let id: Int?
+                    if let i = refData["id"] as? Int {
+                        id = i
+                    } else if let n = refData["id"] as? NSNumber {
+                        id = n.intValue
+                    } else {
+                        id = nil
                     }
-                    return ShowReference(id: id, category: category)
+                    guard let id = id else { return nil }
+                    let category: Show.Category
+                    if let categoryString = refData["category"] as? String,
+                       let parsed = Show.Category(rawValue: categoryString) {
+                        category = parsed
+                    } else {
+                        category = .movie
+                    }
+                    let seasons: [Int]?
+                    if let seasonsArray = refData["seasons"] as? [Int] {
+                        seasons = seasonsArray.isEmpty ? nil : seasonsArray
+                    } else if let seasonsArray = refData["seasons"] as? [NSNumber] {
+                        let parsed = seasonsArray.map { $0.intValue }
+                        seasons = parsed.isEmpty ? nil : parsed
+                    } else {
+                        seasons = nil
+                    }
+                    return ShowReference(id: id, category: category, seasons: seasons)
                 }
             }
             
@@ -184,6 +210,9 @@ struct FirebaseListService: ListService {
                 contributorIDs = []
             }
             
+            // Get autoRemoveOnReview (optional - backwards compatible, default false)
+            let autoRemoveOnReview = data["autoRemoveOnReview"] as? Bool ?? false
+            
             let list = ShowList(
                 id: document.documentID,
                 name: name,
@@ -191,7 +220,8 @@ struct FirebaseListService: ListService {
                 createdAt: createdAt,
                 isDefault: isDefault,
                 ownerID: ownerID,
-                contributorIDs: contributorIDs
+                contributorIDs: contributorIDs,
+                autoRemoveOnReview: autoRemoveOnReview
             )
             
             lists.append(list)
@@ -202,19 +232,26 @@ struct FirebaseListService: ListService {
     
     func updateList(_ list: ShowList, for userID: String) async throws {
         // Convert showReferences to Firestore format
-        let showReferencesData = list.showReferences.map { ref in
-            [
+        let showReferencesData = list.showReferences.map { ref -> [String: Any] in
+            var data: [String: Any] = [
                 "id": ref.id,
                 "category": ref.category.rawValue
             ]
+            if let seasons = ref.seasons, !seasons.isEmpty {
+                data["seasons"] = seasons
+            }
+            return data
         }
         
-        try await db.collection("list").document(list.id).updateData([
+        // Use setData with merge to ensure the write succeeds even if the document
+        // was created elsewhere or there are sync delays; updateData fails if doc doesn't exist.
+        try await db.collection("list").document(list.id).setData([
             "name": list.name,
             "showReferences": showReferencesData,
             "showIDs": list.showIDs, // Keep for backwards compatibility
-            "contributorIDs": list.contributorIDs
-        ])
+            "contributorIDs": list.contributorIDs,
+            "autoRemoveOnReview": list.autoRemoveOnReview
+        ], merge: true)
     }
     
     func deleteList(_ list: ShowList, for userID: String) async throws {
