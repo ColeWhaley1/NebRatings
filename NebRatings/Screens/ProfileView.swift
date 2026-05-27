@@ -26,11 +26,16 @@ struct ProfileView: View {
     @State private var nameError: String?
     @State private var currentReviewPage: Int = 0
     @State private var navigationPath = NavigationPath()
+    @State private var criticDelta: Double?
+    @State private var criticSampleSize: Int = 0
+    @State private var isLoadingGauge = true
+    @State private var isShowingAvatarPicker = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
             List {
                 profileSection
+                statsSection
                 reviewsSection
             }
             .listStyle(.insetGrouped)
@@ -53,15 +58,79 @@ struct ProfileView: View {
             .navigationDestination(for: ShowWithContext.self) { ctx in
                 ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
             }
+            .task(id: store.userReviews.count) {
+                await refreshCriticGauge()
+            }
             .refreshable {
                 await store.loadUserProfile()
+                await refreshCriticGauge()
+            }
+            .sheet(isPresented: $isShowingAvatarPicker) {
+                AvatarPickerView()
+                    .environment(store)
             }
         }
+    }
+
+    private var statsSection: some View {
+        Section {
+            CriticGaugeView(delta: criticDelta, sampleSize: criticSampleSize, isLoading: isLoadingGauge)
+                .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+
+            TopThreePicks(reviews: store.userReviews) { show in
+                navigationPath.append(show)
+            }
+            .environment(store)
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+        }
+    }
+
+    private func refreshCriticGauge() async {
+        isLoadingGauge = true
+        if let result = await store.computeCriticDelta(reviews: store.userReviews) {
+            criticDelta = result.delta
+            criticSampleSize = result.sampleSize
+        } else {
+            criticDelta = nil
+            criticSampleSize = 0
+        }
+        isLoadingGauge = false
     }
 
     private var profileSection: some View {
         Section("Account") {
             if let user = store.currentUser {
+                HStack(spacing: 14) {
+                    Button {
+                        isShowingAvatarPicker = true
+                    } label: {
+                        ZStack(alignment: .bottomTrailing) {
+                            AvatarView(emoji: user.avatarEmoji, photoURL: user.avatarPhotoURL, size: 64)
+                            Image(systemName: "pencil.circle.fill")
+                                .font(.system(size: 22))
+                                .foregroundStyle(.white, .purple)
+                                .background(Circle().fill(.background))
+                                .offset(x: 2, y: 2)
+                        }
+                    }
+                    .buttonStyle(.plain)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Tap avatar to change")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("Tap pencil to edit username")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(.vertical, 4)
+                .listRowSeparator(.hidden)
+
                 if isEditingName {
                     // Edit mode
                     VStack(alignment: .leading, spacing: 8) {

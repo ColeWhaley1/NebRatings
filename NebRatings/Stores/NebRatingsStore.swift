@@ -24,12 +24,15 @@ final class NebRatingsStore {
     private(set) var isQueryingReviews = false
     private(set) var isLoadingRecommendations = false
 
+    var relationships: [Friendship] = []
+
     private let catalogService: CatalogService
     private let reviewService: ReviewService
     private let profileService: ProfileService
     let listService: ListService // Made internal for ListsView migration logic
     private let contactService: ContactService
     let authService: AuthService
+    private let friendshipService: FriendshipService
     
     // Cache for searched shows to avoid re-fetching
     var showCache: [Int: Show] = [:]
@@ -50,7 +53,8 @@ final class NebRatingsStore {
          profileService: ProfileService = FirebaseProfileService(),
          listService: ListService = FirebaseListService(),
          authService: AuthService = FirebaseAuthService(),
-         contactService: ContactService = FirebaseContactService())
+         contactService: ContactService = FirebaseContactService(),
+         friendshipService: FriendshipService = FirebaseFriendshipService())
     {
         self.catalogService = catalogService
         self.reviewService = reviewService
@@ -58,6 +62,7 @@ final class NebRatingsStore {
         self.listService = listService
         self.authService = authService
         self.contactService = contactService
+        self.friendshipService = friendshipService
 
         // Set up auth state listener first - it will fire immediately with current state
         // This ensures we properly restore authentication from Firebase's persisted tokens
@@ -78,6 +83,7 @@ final class NebRatingsStore {
                     isAuthenticated = true
                     await loadUserProfile()
                     await loadUserLists()
+                    await loadRelationships()
                 }
             } else {
                 // User has explicitly signed out - ensure we're not authenticated
@@ -89,6 +95,7 @@ final class NebRatingsStore {
                 currentUser = nil
                 userReviews = []
                 showLists = []
+                relationships = []
             }
         }
     }
@@ -124,9 +131,10 @@ final class NebRatingsStore {
                     self.currentUser = nil
                     self.userReviews = []
                     self.showLists = []
+                    self.relationships = []
                     return
                 }
-                
+
                 if user != nil {
                     // User is authenticated - ensure we're marked as authenticated
                     // This will fire immediately on app launch if user has persisted session
@@ -135,6 +143,7 @@ final class NebRatingsStore {
                         self.isAuthenticated = true
                         await self.loadUserProfile()
                         await self.loadUserLists()
+                        await self.loadRelationships()
                     }
                 } else {
                     // User is not authenticated - this happens after sign out or if no session exists
@@ -143,6 +152,7 @@ final class NebRatingsStore {
                     self.currentUser = nil
                     self.userReviews = []
                     self.showLists = []
+                    self.relationships = []
                 }
             }
         }
@@ -152,10 +162,11 @@ final class NebRatingsStore {
         // Clear the explicit sign out flag BEFORE setting authenticated state
         // This prevents the auth state listener from interfering with sign-in
         hasExplicitlySignedOut = false
-        
+
         isAuthenticated = true
         await loadUserProfile()
         await loadUserLists()
+        await loadRelationships()
     }
     
     // Method to clear the explicit sign out flag before initiating sign-in
@@ -659,7 +670,8 @@ final class NebRatingsStore {
             currentUser = nil
             userReviews = []
             showLists = []
-            
+            relationships = []
+
             // Verify that sign out was successful - user should be nil
             // This ensures the token is truly invalidated
             if authService.getCurrentUserID() != nil {
@@ -673,6 +685,7 @@ final class NebRatingsStore {
             currentUser = nil
             userReviews = []
             showLists = []
+            relationships = []
         }
     }
     
@@ -696,14 +709,22 @@ final class NebRatingsStore {
         // Delete user profile
         try await profileService.deleteProfile(userID: userID)
         
+        // Delete all of this user's relationships (incoming + outgoing + accepted)
+        for relationship in relationships {
+            if let other = relationship.otherUserID(currentUserID: userID) {
+                try? await friendshipService.deleteRelationship(currentUserID: userID, otherUserID: other)
+            }
+        }
+
         // Delete Firebase Auth account (this must be last)
         try await authService.deleteAccount()
-        
+
         // Clear local state
         isAuthenticated = false
         currentUser = nil
         userReviews = []
         showLists = []
+        relationships = []
         
         // Remove reviews from local cache if username was available
         if let username = username {
@@ -823,10 +844,158 @@ final class NebRatingsStore {
         else {
             throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "Invalid user ID or empty name"])
         }
-        
+
         try await profileService.updateProfile(userID: userID, name: newName.trimmingCharacters(in: .whitespaces))
         // Reload profile to get updated data
         await loadUserProfile()
+    }
+
+    func updateAvatar(emoji: String?, photoURL: String?) async throws {
+        guard let userID = authService.getCurrentUserID() else {
+            throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        try await profileService.updateAvatar(userID: userID, emoji: emoji, photoURL: photoURL)
+        await loadUserProfile()
+    }
+
+    func fetchReviews(for userID: String) async -> [Review] {
+        do {
+            return try await profileService.fetchReviews(for: userID)
+        } catch {
+            return []
+        }
+    }
+
+    // MARK: - Friendships
+
+    var friends: [Friendship] {
+        relationships.filter { $0.status == .accepted }
+    }
+
+    var incomingRequests: [Friendship] {
+        guard let me = authService.getCurrentUserID() else { return [] }
+        return relationships.filter { $0.isIncomingRequest(for: me) }
+    }
+
+    var outgoingRequests: [Friendship] {
+        guard let me = authService.getCurrentUserID() else { return [] }
+        return relationships.filter { $0.isOutgoingRequest(for: me) }
+    }
+
+    func relationshipState(with otherUserID: String) -> RelationshipState {
+        guard let me = authService.getCurrentUserID() else { return .none }
+        guard let rel = relationships.first(where: { $0.members.contains(otherUserID) && $0.members.contains(me) }) else {
+            return .none
+        }
+        switch rel.status {
+        case .accepted: return .friends
+        case .pending:  return rel.requesterID == me ? .outgoingRequest : .incomingRequest
+        }
+    }
+
+    func loadRelationships() async {
+        guard let userID = authService.getCurrentUserID() else {
+            relationships = []
+            return
+        }
+        do {
+            relationships = try await friendshipService.fetchRelationships(for: userID)
+        } catch {
+            // Leave existing state on failure.
+        }
+    }
+
+    func sendFriendRequest(to otherUserID: String) async {
+        guard let me = authService.getCurrentUserID(), me != otherUserID else { return }
+        // Optimistic add
+        let placeholder = Friendship(
+            id: Friendship.documentID(me, otherUserID),
+            members: [me, otherUserID].sorted(),
+            status: .pending,
+            requesterID: me,
+            createdAt: Date()
+        )
+        if !relationships.contains(where: { $0.id == placeholder.id }) {
+            relationships.append(placeholder)
+        }
+        do {
+            try await friendshipService.sendRequest(from: me, to: otherUserID)
+        } catch {
+            // Don't blindly revert — refetch to determine actual state.
+            // (If the write truly failed, the refetch won't include the placeholder,
+            // and the UI will correct itself. If it succeeded but threw for some
+            // other reason, we'll keep the friendship.)
+            await loadRelationships()
+        }
+    }
+
+    func acceptFriendRequest(from otherUserID: String) async {
+        guard let me = authService.getCurrentUserID() else { return }
+        let id = Friendship.documentID(me, otherUserID)
+
+        // Optimistic flip
+        if let idx = relationships.firstIndex(where: { $0.id == id }) {
+            let existing = relationships[idx]
+            relationships[idx] = Friendship(
+                id: existing.id,
+                members: existing.members,
+                status: .accepted,
+                requesterID: existing.requesterID,
+                createdAt: existing.createdAt
+            )
+        }
+
+        do {
+            try await friendshipService.acceptRequest(currentUserID: me, otherUserID: otherUserID)
+        } catch {
+            await loadRelationships()
+        }
+    }
+
+    /// Used for declining incoming requests, canceling outgoing requests, and removing friends.
+    func removeRelationship(with otherUserID: String) async {
+        guard let me = authService.getCurrentUserID() else { return }
+        let id = Friendship.documentID(me, otherUserID)
+        let backup = relationships.first(where: { $0.id == id })
+        relationships.removeAll { $0.id == id }
+        do {
+            try await friendshipService.deleteRelationship(currentUserID: me, otherUserID: otherUserID)
+        } catch {
+            if let backup { relationships.append(backup) }
+        }
+    }
+
+    func fetchProfiles(userIDs: [String]) async -> [UserProfile] {
+        do {
+            return try await profileService.fetchProfiles(userIDs: userIDs)
+        } catch {
+            return []
+        }
+    }
+
+    /// Average of (nebRating − tmdbRating) across the supplied reviews where TMDB has a rating.
+    /// Negative = harsher than the audience; positive = more generous. Returns nil if no comparable reviews.
+    func computeCriticDelta(reviews: [Review]) async -> (delta: Double, sampleSize: Int)? {
+        var uniqueShows: [Int: Show.Category] = [:]
+        for review in reviews {
+            uniqueShows[review.showID] = review.showCategory
+        }
+        guard !uniqueShows.isEmpty else { return nil }
+
+        var ratings: [Int: Double] = [:]
+        for (id, category) in uniqueShows {
+            if let show = await fetchShowDetails(id: id, category: category),
+               let rating = show.rating, rating > 0 {
+                ratings[id] = rating
+            }
+        }
+
+        let deltas: [Double] = reviews.compactMap { review in
+            guard let tmdb = ratings[review.showID] else { return nil }
+            return review.nebRating - tmdb
+        }
+        guard !deltas.isEmpty else { return nil }
+        return (deltas.reduce(0, +) / Double(deltas.count), deltas.count)
     }
 
     private func loadUserReviews(for userID: String) async {
@@ -1092,7 +1261,12 @@ final class NebRatingsStore {
     }
     
     func updateReview(_ review: Review, comment: String, rating: Double) {
-        // Create updated review with new comment and rating, keeping season from original
+        updateReview(review, comment: comment, rating: rating, newSeason: review.season)
+    }
+
+    /// Update including the ability to change the season target (nil = entire show).
+    func updateReview(_ review: Review, comment: String, rating: Double, newSeason: Int?) {
+        // Create updated review with new comment, rating, and explicit season target
         let updatedReview = Review(
             id: review.id,
             showID: review.showID,
@@ -1102,7 +1276,7 @@ final class NebRatingsStore {
             comment: comment.trimmingCharacters(in: .whitespacesAndNewlines),
             nebRating: rating,
             timestamp: review.timestamp, // Keep original timestamp
-            season: review.season // Keep original season
+            season: newSeason
         )
         
         // Update in local state immediately for optimistic UI

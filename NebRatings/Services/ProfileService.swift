@@ -13,8 +13,10 @@ import FirebaseCore
 protocol ProfileService {
     func createProfile(userID: String, name: String) async throws
     func updateProfile(userID: String, name: String) async throws
+    func updateAvatar(userID: String, emoji: String?, photoURL: String?) async throws
     func fetchCurrentUser() async throws -> UserProfile
     func fetchProfile(userID: String) async throws -> UserProfile?
+    func fetchProfiles(userIDs: [String]) async throws -> [UserProfile]
     func fetchReviews(for userID: String) async throws -> [Review]
     func searchUsers(byName name: String) async throws -> [UserProfile]
     func isUsernameAvailable(_ name: String, excludingUserID: String?) async throws -> Bool
@@ -68,30 +70,70 @@ struct FirebaseProfileService: ProfileService {
         ])
     }
     
+    func updateAvatar(userID: String, emoji: String?, photoURL: String?) async throws {
+        var data: [String: Any] = [:]
+        data["avatarEmoji"] = emoji as Any? ?? NSNull()
+        data["avatarPhotoURL"] = photoURL as Any? ?? NSNull()
+        try await db.collection("profile").document(userID).setData(data, merge: true)
+    }
+
     func fetchCurrentUser() async throws -> UserProfile {
         guard let userID = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "ProfileService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
         }
-        
+
         let document = try await db.collection("profile").document(userID).getDocument()
-        
+
         guard document.exists,
               let data = document.data(),
               let username = data["username"] as? String else {
             throw NSError(domain: "ProfileService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Profile not found"])
         }
-        return UserProfile(id: userID, username: username)
+        return UserProfile(
+            id: userID,
+            username: username,
+            avatarEmoji: data["avatarEmoji"] as? String,
+            avatarPhotoURL: data["avatarPhotoURL"] as? String
+        )
     }
-    
+
     func fetchProfile(userID: String) async throws -> UserProfile? {
         let document = try await db.collection("profile").document(userID).getDocument()
-        
+
         guard document.exists,
               let data = document.data(),
               let username = data["username"] as? String else {
             return nil
         }
-        return UserProfile(id: userID, username: username)
+        return UserProfile(
+            id: userID,
+            username: username,
+            avatarEmoji: data["avatarEmoji"] as? String,
+            avatarPhotoURL: data["avatarPhotoURL"] as? String
+        )
+    }
+
+    func fetchProfiles(userIDs: [String]) async throws -> [UserProfile] {
+        guard !userIDs.isEmpty else { return [] }
+
+        var results: [UserProfile] = []
+        // Firestore `in` queries cap at 30 values; chunk to stay safe.
+        for chunk in userIDs.chunked(into: 30) {
+            let snapshot = try await db.collection("profile")
+                .whereField(FieldPath.documentID(), in: chunk)
+                .getDocuments()
+            for document in snapshot.documents {
+                let data = document.data()
+                guard let username = data["username"] as? String else { continue }
+                results.append(UserProfile(
+                    id: document.documentID,
+                    username: username,
+                    avatarEmoji: data["avatarEmoji"] as? String,
+                    avatarPhotoURL: data["avatarPhotoURL"] as? String
+                ))
+            }
+        }
+        return results
     }
 
     func fetchReviews(for userID: String) async throws -> [Review] {
@@ -209,10 +251,15 @@ struct FirebaseProfileService: ProfileService {
             // Case-insensitive contains check - matches if search term appears anywhere in username
             let normalizedUsername = username.lowercased()
             if normalizedUsername.contains(searchTerm) {
-                users.append(UserProfile(id: document.documentID, username: username))
+                users.append(UserProfile(
+                    id: document.documentID,
+                    username: username,
+                    avatarEmoji: data["avatarEmoji"] as? String,
+                    avatarPhotoURL: data["avatarPhotoURL"] as? String
+                ))
             }
         }
-        
+
         // Also check legacy profiles that might not have usernameLowercase field yet
         // Query by username field (case-sensitive, so try both lowercase and capitalized)
         let legacyQuery1 = db.collection("profile")
@@ -246,10 +293,15 @@ struct FirebaseProfileService: ProfileService {
             
             let normalizedUsername = username.lowercased()
             if normalizedUsername.contains(searchTerm) {
-                users.append(UserProfile(id: document.documentID, username: username))
+                users.append(UserProfile(
+                    id: document.documentID,
+                    username: username,
+                    avatarEmoji: data["avatarEmoji"] as? String,
+                    avatarPhotoURL: data["avatarPhotoURL"] as? String
+                ))
             }
         }
-        
+
         // Remove duplicates
         var uniqueUsers: [UserProfile] = []
         var seenIDs = Set<String>()
@@ -344,8 +396,17 @@ struct FirebaseProfileService: ProfileService {
         guard FirebaseApp.app() != nil else {
             throw NSError(domain: "ProfileService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
         }
-        
+
         try await db.collection("profile").document(userID).delete()
+    }
+}
+
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }
 

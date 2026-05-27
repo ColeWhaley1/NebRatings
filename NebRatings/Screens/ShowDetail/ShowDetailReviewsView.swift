@@ -125,17 +125,24 @@ struct ShowDetailReviewsView: View {
                                                 Button {
                                                     store.deleteReview(review)
                                                 } label: {
-                                                    Label("Delete", systemImage: "trash")
-                                                        .symbolRenderingMode(.hierarchical)
+                                                    Image(systemName: "trash.fill")
+                                                        .font(.system(size: 16, weight: .semibold))
+                                                        .foregroundStyle(.white)
+                                                        .frame(width: 44, height: 44)
+                                                        .background(Color.red, in: Circle())
                                                 }
-                                                .tint(Color.red.opacity(0.7))
-                                                
+                                                .tint(.clear)
+
                                                 Button {
                                                     reviewToEdit = review
                                                 } label: {
-                                                    Label("Edit", systemImage: "pencil.line")
+                                                    Image(systemName: "pencil")
+                                                        .font(.system(size: 16, weight: .semibold))
+                                                        .foregroundStyle(.white)
+                                                        .frame(width: 44, height: 44)
+                                                        .background(Color.blue, in: Circle())
                                                 }
-                                                .tint(Color.blue.opacity(0.7))
+                                                .tint(.clear)
                                             }
                                         }
                                     }

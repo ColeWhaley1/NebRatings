@@ -33,7 +33,7 @@ struct ReviewCard: View {
     var onTap: (() -> Void)? = nil
     var useLighterBackground: Bool = false // For Reviews tab to add contrast
     @Environment(\.colorScheme) var colorScheme
-    
+
     private let fixedCardHeight: CGFloat = 220 // Increased for better spacing
     private let commentLineLimit = 3
     
@@ -91,7 +91,7 @@ struct ReviewCard: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                    
+
                     // Show season info if this is a season-specific review
                     if let season = review.season {
                         Text("S\(season)")
@@ -153,7 +153,7 @@ struct ReviewCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(ConditionalTapGestureModifier(onTap: onTap))
     }
-    
+
 }
 
 #Preview("Short Text - Light") {

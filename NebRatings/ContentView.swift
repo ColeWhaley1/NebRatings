@@ -35,10 +35,15 @@ struct ContentView: View {
                         .tabItem {
                             Label("Reviews", systemImage: "text.bubble")
                         }
-                    
+
                     ListsView()
                         .tabItem {
                             Label("Lists", systemImage: "list.bullet.rectangle")
+                        }
+
+                    FriendsView()
+                        .tabItem {
+                            Label("Friends", systemImage: "person.2.fill")
                         }
 
                     ProfileView()
