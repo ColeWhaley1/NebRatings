@@ -120,7 +120,10 @@ struct FirebaseReviewService: ReviewService {
             
             // Parse season (optional field)
             let season: Int? = data["season"] as? Int
-            
+
+            // Parse author's userId (used for avatar / friend resolution)
+            let authorID = data["userId"] as? String
+
             // Create Review model matching the struct exactly
             let review = Review(
                 id: id,
@@ -128,6 +131,7 @@ struct FirebaseReviewService: ReviewService {
                 showTitle: showTitle,
                 showCategory: showCategory,
                 author: author,
+                authorID: authorID,
                 comment: comment,
                 nebRating: nebRating,
                 timestamp: timestamp,

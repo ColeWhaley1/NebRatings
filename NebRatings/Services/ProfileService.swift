@@ -13,7 +13,7 @@ import FirebaseCore
 protocol ProfileService {
     func createProfile(userID: String, name: String) async throws
     func updateProfile(userID: String, name: String) async throws
-    func updateAvatar(userID: String, emoji: String?, photoURL: String?) async throws
+    func updateAvatar(userID: String, emoji: String?) async throws
     func fetchCurrentUser() async throws -> UserProfile
     func fetchProfile(userID: String) async throws -> UserProfile?
     func fetchProfiles(userIDs: [String]) async throws -> [UserProfile]
@@ -21,6 +21,8 @@ protocol ProfileService {
     func searchUsers(byName name: String) async throws -> [UserProfile]
     func isUsernameAvailable(_ name: String, excludingUserID: String?) async throws -> Bool
     func deleteProfile(userID: String) async throws
+    func incrementCriticAggregate(userID: String, sumDelta: Double, countDelta: Int) async throws
+    func setCriticAggregate(userID: String, sum: Double, count: Int) async throws
 }
 
 struct FirebaseProfileService: ProfileService {
@@ -70,10 +72,8 @@ struct FirebaseProfileService: ProfileService {
         ])
     }
     
-    func updateAvatar(userID: String, emoji: String?, photoURL: String?) async throws {
-        var data: [String: Any] = [:]
-        data["avatarEmoji"] = emoji as Any? ?? NSNull()
-        data["avatarPhotoURL"] = photoURL as Any? ?? NSNull()
+    func updateAvatar(userID: String, emoji: String?) async throws {
+        let data: [String: Any] = ["avatarEmoji": emoji as Any? ?? NSNull()]
         try await db.collection("profile").document(userID).setData(data, merge: true)
     }
 
@@ -93,7 +93,8 @@ struct FirebaseProfileService: ProfileService {
             id: userID,
             username: username,
             avatarEmoji: data["avatarEmoji"] as? String,
-            avatarPhotoURL: data["avatarPhotoURL"] as? String
+            criticDeltaSum: data["criticDeltaSum"] as? Double,
+            criticDeltaCount: data["criticDeltaCount"] as? Int
         )
     }
 
@@ -109,7 +110,8 @@ struct FirebaseProfileService: ProfileService {
             id: userID,
             username: username,
             avatarEmoji: data["avatarEmoji"] as? String,
-            avatarPhotoURL: data["avatarPhotoURL"] as? String
+            criticDeltaSum: data["criticDeltaSum"] as? Double,
+            criticDeltaCount: data["criticDeltaCount"] as? Int
         )
     }
 
@@ -129,11 +131,26 @@ struct FirebaseProfileService: ProfileService {
                     id: document.documentID,
                     username: username,
                     avatarEmoji: data["avatarEmoji"] as? String,
-                    avatarPhotoURL: data["avatarPhotoURL"] as? String
+                    criticDeltaSum: data["criticDeltaSum"] as? Double,
+                    criticDeltaCount: data["criticDeltaCount"] as? Int
                 ))
             }
         }
         return results
+    }
+
+    func incrementCriticAggregate(userID: String, sumDelta: Double, countDelta: Int) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "criticDeltaSum": FieldValue.increment(sumDelta),
+            "criticDeltaCount": FieldValue.increment(Int64(countDelta))
+        ], merge: true)
+    }
+
+    func setCriticAggregate(userID: String, sum: Double, count: Int) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "criticDeltaSum": sum,
+            "criticDeltaCount": count
+        ], merge: true)
     }
 
     func fetchReviews(for userID: String) async throws -> [Review] {
@@ -197,7 +214,10 @@ struct FirebaseProfileService: ProfileService {
             
             // Parse season (optional field) - for season-specific reviews
             let season: Int? = data["season"] as? Int
-            
+
+            // Author's userId — this query is keyed by userId so fall back to the requested userID.
+            let authorID = (data["userId"] as? String) ?? userID
+
             // Create Review model matching the struct exactly
             let review = Review(
                 id: id,
@@ -205,6 +225,7 @@ struct FirebaseProfileService: ProfileService {
                 showTitle: showTitle,
                 showCategory: showCategory,
                 author: author,
+                authorID: authorID,
                 comment: comment,
                 nebRating: nebRating,
                 timestamp: timestamp,
@@ -254,8 +275,7 @@ struct FirebaseProfileService: ProfileService {
                 users.append(UserProfile(
                     id: document.documentID,
                     username: username,
-                    avatarEmoji: data["avatarEmoji"] as? String,
-                    avatarPhotoURL: data["avatarPhotoURL"] as? String
+                    avatarEmoji: data["avatarEmoji"] as? String
                 ))
             }
         }
@@ -296,8 +316,7 @@ struct FirebaseProfileService: ProfileService {
                 users.append(UserProfile(
                     id: document.documentID,
                     username: username,
-                    avatarEmoji: data["avatarEmoji"] as? String,
-                    avatarPhotoURL: data["avatarPhotoURL"] as? String
+                    avatarEmoji: data["avatarEmoji"] as? String
                 ))
             }
         }

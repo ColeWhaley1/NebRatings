@@ -13,6 +13,7 @@ struct Review: Identifiable, Hashable {
     let showTitle: String
     let showCategory: Show.Category
     let author: String
+    let authorID: String?  // Firestore userId of the author — used for avatar/friend resolution
     let comment: String
     let nebRating: Double
     let timestamp: Date
@@ -23,6 +24,7 @@ struct Review: Identifiable, Hashable {
          showTitle: String,
          showCategory: Show.Category,
          author: String,
+         authorID: String? = nil,
          comment: String,
          nebRating: Double,
          timestamp: Date = .now,
@@ -32,6 +34,7 @@ struct Review: Identifiable, Hashable {
         self.showTitle = showTitle
         self.showCategory = showCategory
         self.author = author
+        self.authorID = authorID
         self.comment = comment
         self.nebRating = nebRating
         self.timestamp = timestamp

@@ -9,8 +9,6 @@ struct TopThreePicks: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
 
     let reviews: [Review]
-    /// Called when a pick is tapped — receives the resolved Show.
-    let onSelect: (Show) -> Void
 
     private static let medals = ["🥇", "🥈", "🥉"]
 
@@ -59,11 +57,20 @@ struct TopThreePicks: View {
 
     @ViewBuilder
     private func pickCard(review: Review, rank: Int) -> some View {
-        let show = store.show(for: review)
-        Button {
-            if let show { onSelect(show) }
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
+        // store.show(for:) always resolves at least a minimal Show, so the link is always valid.
+        if let show = store.show(for: review) {
+            NavigationLink(value: show) {
+                pickCardLabel(review: review, rank: rank, show: show)
+            }
+            .buttonStyle(.plain)
+        } else {
+            pickCardLabel(review: review, rank: rank, show: nil)
+        }
+    }
+
+    @ViewBuilder
+    private func pickCardLabel(review: Review, rank: Int, show: Show?) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topLeading) {
                     Group {
                         if let posterURL = show?.posterURL {
@@ -103,7 +110,5 @@ struct TopThreePicks: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .buttonStyle(.plain)
     }
 }

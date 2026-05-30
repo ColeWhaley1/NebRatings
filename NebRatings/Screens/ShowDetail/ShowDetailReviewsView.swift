@@ -18,7 +18,7 @@ struct ShowDetailReviewsView: View {
     let averageRatingForFilteredSeason: Double?
     
     var body: some View {
-        let allReviews = reviews()
+        let allReviews = prioritizedReviews(reviews())
         let reviewPages = ShowDetailHelpers.chunkReviews(allReviews, pageSize: 5)
         
         VStack(alignment: .leading, spacing: 4) {
@@ -109,10 +109,13 @@ struct ShowDetailReviewsView: View {
                                 List {
                                     ForEach(reviewPages[pageIndex]) { review in
                                         let isOwnReview = store.currentUser?.username == review.author
+                                        let authorProfile = store.cachedProfile(for: review.authorID)
                                         ReviewCard(
                                             review: review,
                                             showCategory: review.showCategory,
                                             isOwnReview: isOwnReview,
+                                            authorAvatarEmoji: authorProfile?.avatarEmoji,
+                                            isFriend: store.isFriend(review.authorID),
                                             onTap: {
                                                 expandedReview = review
                                             }
@@ -199,5 +202,26 @@ struct ShowDetailReviewsView: View {
                 currentReviewPage = 0
             }
         }
+    }
+
+    /// Orders reviews: your own first, then friends', then everyone else — each tier by recency.
+    private func prioritizedReviews(_ reviews: [Review]) -> [Review] {
+        reviews.sorted { lhs, rhs in
+            let lr = priorityRank(lhs)
+            let rr = priorityRank(rhs)
+            if lr != rr { return lr < rr }
+            return lhs.timestamp > rhs.timestamp
+        }
+    }
+
+    /// 0 = your review, 1 = a friend's, 2 = everyone else.
+    private func priorityRank(_ review: Review) -> Int {
+        if review.authorID == store.currentUser?.id || review.author == store.currentUser?.username {
+            return 0
+        }
+        if store.isFriend(review.authorID) {
+            return 1
+        }
+        return 2
     }
 }

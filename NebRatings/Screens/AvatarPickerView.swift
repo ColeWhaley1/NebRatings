@@ -10,20 +10,19 @@ struct AvatarPickerView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var selectedEmoji: String?
+    @State private var customEmojiField: String = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @FocusState private var customFieldFocused: Bool
 
-    private let columns = [GridItem(.adaptive(minimum: 80, maximum: 100), spacing: 16)]
-
-    init() {
-        _selectedEmoji = State(initialValue: nil)
-    }
+    private let columns = [GridItem(.adaptive(minimum: 64, maximum: 90), spacing: 14)]
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 24) {
                     previewSection
+                    customEmojiSection
                     presetGrid
                     if let errorMessage {
                         Text(errorMessage)
@@ -51,6 +50,11 @@ struct AvatarPickerView: View {
                             .disabled(!hasChanges)
                     }
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { customFieldFocused = false }
+                        .fontWeight(.semibold)
+                }
             }
             .onAppear {
                 selectedEmoji = store.currentUser?.avatarEmoji
@@ -58,9 +62,7 @@ struct AvatarPickerView: View {
         }
     }
 
-    private var hasChanges: Bool {
-        selectedEmoji != store.currentUser?.avatarEmoji
-    }
+    // MARK: - Preview
 
     private var previewSection: some View {
         VStack(spacing: 10) {
@@ -73,16 +75,48 @@ struct AvatarPickerView: View {
         .padding(.vertical, 16)
     }
 
+    // MARK: - Custom emoji entry (Apple's emoji keyboard)
+
+    private var customEmojiSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Type any emoji")
+                .font(.subheadline.bold())
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                TextField("😀", text: $customEmojiField)
+                    .focused($customFieldFocused)
+                    .font(.system(size: 32))
+                    .multilineTextAlignment(.center)
+                    .frame(width: 64, height: 56)
+                    .background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12))
+                    .onChange(of: customEmojiField) { _, newValue in
+                        applyCustomEmoji(newValue)
+                    }
+
+                Text("Tap the field, then the emoji 😀 button to pick from thousands of emoji.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+
+    // MARK: - Preset grid
+
     private var presetGrid: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Pick a vibe")
+            Text("Or pick a vibe")
                 .font(.subheadline.bold())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 4)
 
-            LazyVGrid(columns: columns, spacing: 16) {
-                // "None" tile to clear the avatar
-                presetTile(emoji: nil)
+            LazyVGrid(columns: columns, spacing: 14) {
+                presetTile(emoji: nil) // "None" / default
                 ForEach(Avatar.presets, id: \.self) { emoji in
                     presetTile(emoji: emoji)
                 }
@@ -99,21 +133,21 @@ struct AvatarPickerView: View {
         let isSelected = emoji == selectedEmoji
         return Button {
             selectedEmoji = emoji
+            customEmojiField = ""
+            customFieldFocused = false
         } label: {
             ZStack {
-                Group {
-                    if let emoji {
-                        Circle().fill(Avatar.backgroundColor(for: emoji))
-                        Text(emoji).font(.system(size: 36))
-                    } else {
-                        Circle().fill(Color.gray.opacity(0.2))
-                        Image(systemName: "slash.circle")
-                            .font(.system(size: 26))
-                            .foregroundStyle(.secondary)
-                    }
+                if let emoji {
+                    Circle().fill(Avatar.backgroundColor(for: emoji))
+                    Text(emoji).font(.system(size: 32))
+                } else {
+                    Circle().fill(Color.gray.opacity(0.2))
+                    Image(systemName: "slash.circle")
+                        .font(.system(size: 24))
+                        .foregroundStyle(.secondary)
                 }
             }
-            .frame(width: 72, height: 72)
+            .frame(width: 64, height: 64)
             .overlay(
                 Circle()
                     .stroke(isSelected ? Color.purple : Color.primary.opacity(0.08),
@@ -125,14 +159,32 @@ struct AvatarPickerView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Logic
+
+    private var hasChanges: Bool {
+        selectedEmoji != store.currentUser?.avatarEmoji
+    }
+
+    /// Keep only the first emoji character a user enters in the custom field.
+    private func applyCustomEmoji(_ text: String) {
+        guard let firstEmoji = text.first(where: { $0.isEmojiCharacter }) else {
+            // Non-emoji input: ignore and clear.
+            if !text.isEmpty { customEmojiField = "" }
+            return
+        }
+        let value = String(firstEmoji)
+        selectedEmoji = value
+        if customEmojiField != value { customEmojiField = value }
+    }
+
     private func save() {
         guard hasChanges else { return }
         isSaving = true
         errorMessage = nil
         Task {
             do {
-                // Photo URL stays as-is for now; Step 5 will add upload support.
-                try await store.updateAvatar(emoji: selectedEmoji, photoURL: store.currentUser?.avatarPhotoURL)
+                // Avatars are emoji-only to keep the project on Firebase's free plan.
+                try await store.updateAvatar(emoji: selectedEmoji)
                 isSaving = false
                 dismiss()
             } catch {

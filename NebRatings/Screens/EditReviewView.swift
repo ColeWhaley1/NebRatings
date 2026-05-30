@@ -46,8 +46,20 @@ struct EditReviewView: View {
     private var ratingTint: Color {
         if rating >= 8.0 { return .green }
         if rating <= 4.0 { return .red }
-        if rating >= 6.5 { return .blue }
-        return .purple
+        return .primary
+    }
+
+    /// Slider track color — mirrors ratingTint but uses a soft gray in the neutral range
+    /// so the track doesn't look like a stark black/white bar.
+    private var sliderTint: Color {
+        if rating >= 8.0 { return .green }
+        if rating <= 4.0 { return .red }
+        return .gray
+    }
+
+    private var ratingChanged: Bool {
+        // Compare with a small epsilon to avoid floating-point noise from the slider.
+        abs(rating - review.nebRating) > 0.05
     }
 
     var body: some View {
@@ -141,21 +153,37 @@ struct EditReviewView: View {
             }
 
             Slider(value: $rating, in: 0...10, step: 0.1)
-                .tint(ratingTint)
+                .tint(sliderTint)
 
             HStack(spacing: 12) {
                 stepButton(systemName: "minus") {
                     rating = max(0, (rating * 10).rounded() / 10 - 0.1)
                 }
                 Spacer()
-                Text("Drag the slider or tap ± to fine-tune")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if ratingChanged {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            rating = review.nebRating
+                        }
+                    } label: {
+                        Label("Reset to \(String(format: "%.1f", review.nebRating))",
+                              systemImage: "arrow.uturn.backward")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .transition(.opacity)
+                } else {
+                    Text("Drag the slider or tap ± to fine-tune")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
                 stepButton(systemName: "plus") {
                     rating = min(10, (rating * 10).rounded() / 10 + 0.1)
                 }
             }
+            .animation(.easeInOut(duration: 0.15), value: ratingChanged)
         }
         .padding(16)
         .background(card)
@@ -253,9 +281,9 @@ struct EditReviewView: View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(width: 32, height: 32)
-                .background(Color.purple, in: Circle())
+                .background(Color.gray.opacity(0.22), in: Circle())
         }
         .buttonStyle(.plain)
     }

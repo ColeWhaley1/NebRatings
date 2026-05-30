@@ -30,6 +30,8 @@ struct ReviewCard: View {
     var showTitle: String?
     var showCategory: Show.Category?
     var isOwnReview: Bool = false
+    var authorAvatarEmoji: String? = nil
+    var isFriend: Bool = false
     var onTap: (() -> Void)? = nil
     var useLighterBackground: Bool = false // For Reviews tab to add contrast
     @Environment(\.colorScheme) var colorScheme
@@ -104,8 +106,11 @@ struct ReviewCard: View {
                 }
             }
 
-            // Author name and rating on the same line
+            // Author avatar, name, and rating on the same line
             HStack(spacing: 8) {
+                // Avatar — another quick way to recognize who wrote the review
+                AvatarView(emoji: authorAvatarEmoji, size: 34)
+
                 // Author name with ellipsis if too long
                 HStack(spacing: 6) {
                     Text(review.author)
@@ -113,16 +118,23 @@ struct ReviewCard: View {
                         .foregroundStyle(isOwnReview ? .purple : .primary)
                         .lineLimit(1)
                     if isOwnReview {
-                        Text("(You)")
+                        Text("You")
                             .font(.caption)
                             .foregroundStyle(.purple)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.purple.opacity(0.15), in: Capsule())
+                    } else if isFriend {
+                        Text("Friend")
+                            .font(.caption.bold())
+                            .foregroundStyle(.teal)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.teal.opacity(0.18), in: Capsule())
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                
+
                 // Rating fixed to right
                 NebRatingView(rating: review.nebRating, isOwnReview: isOwnReview)
             }

@@ -25,6 +25,8 @@ final class NebRatingsStore {
     private(set) var isLoadingRecommendations = false
 
     var relationships: [Friendship] = []
+    /// Cache of other users' profiles keyed by userID — used to render author avatars on reviews.
+    var profileCache: [String: UserProfile] = [:]
 
     private let catalogService: CatalogService
     private let reviewService: ReviewService
@@ -822,6 +824,9 @@ final class NebRatingsStore {
                 let sortedReviews = results.sorted { $0.timestamp > $1.timestamp }
                 reviews = sortedReviews
             }
+
+            // Load author profiles (avatars) for the reviews we just fetched.
+            await ensureProfilesLoaded(forAuthorIDs: reviews.compactMap { $0.authorID })
         } catch {
             // Handle error
         }
@@ -832,6 +837,8 @@ final class NebRatingsStore {
             let profile = try await profileService.fetchCurrentUser()
             currentUser = profile
             await loadUserReviews(for: profile.id)
+            // Compute the critic aggregate once for legacy profiles; no-op afterwards.
+            await backfillCriticAggregateIfNeeded()
         } catch {
             // Keep currentUser as nil if profile can't be loaded
             currentUser = nil
@@ -850,11 +857,11 @@ final class NebRatingsStore {
         await loadUserProfile()
     }
 
-    func updateAvatar(emoji: String?, photoURL: String?) async throws {
+    func updateAvatar(emoji: String?) async throws {
         guard let userID = authService.getCurrentUserID() else {
             throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
         }
-        try await profileService.updateAvatar(userID: userID, emoji: emoji, photoURL: photoURL)
+        try await profileService.updateAvatar(userID: userID, emoji: emoji)
         await loadUserProfile()
     }
 
@@ -973,14 +980,52 @@ final class NebRatingsStore {
         }
     }
 
-    /// Average of (nebRating − tmdbRating) across the supplied reviews where TMDB has a rating.
-    /// Negative = harsher than the audience; positive = more generous. Returns nil if no comparable reviews.
-    func computeCriticDelta(reviews: [Review]) async -> (delta: Double, sampleSize: Int)? {
+    // MARK: - Author avatars & friend resolution (for review rows)
+
+    /// Set of userIDs that are accepted friends of the current user.
+    var friendIDs: Set<String> {
+        guard let me = authService.getCurrentUserID() else { return [] }
+        return Set(friends.compactMap { $0.otherUserID(currentUserID: me) })
+    }
+
+    func isFriend(_ userID: String?) -> Bool {
+        guard let userID else { return false }
+        return friendIDs.contains(userID)
+    }
+
+    /// Returns the profile for a userID — current user, or cached other user.
+    func cachedProfile(for userID: String?) -> UserProfile? {
+        guard let userID else { return nil }
+        if userID == currentUser?.id { return currentUser }
+        return profileCache[userID]
+    }
+
+    /// Fetches any author profiles not already cached so their avatars can render.
+    func ensureProfilesLoaded(forAuthorIDs ids: [String]) async {
+        let me = currentUser?.id
+        let missing = Set(ids).subtracting(profileCache.keys).filter { $0 != me && !$0.isEmpty }
+        guard !missing.isEmpty else { return }
+        let fetched = await fetchProfiles(userIDs: Array(missing))
+        for profile in fetched {
+            profileCache[profile.id] = profile
+        }
+    }
+
+    // MARK: - Critic harshness aggregate
+    //
+    // The gauge value is an average of (nebRating − tmdbRating). Rather than recompute it
+    // (which requires a TMDB lookup per reviewed show) every time a profile is viewed, we
+    // persist the running sum + count on the profile document and maintain it incrementally
+    // on each review write. Reads then become O(1): delta = sum / count.
+
+    /// Full recomputation from scratch — only used for one-time backfill of profiles that
+    /// predate this feature. Returns the running sum and count of comparable reviews.
+    private func computeCriticAggregate(reviews: [Review]) async -> (sum: Double, count: Int) {
         var uniqueShows: [Int: Show.Category] = [:]
         for review in reviews {
             uniqueShows[review.showID] = review.showCategory
         }
-        guard !uniqueShows.isEmpty else { return nil }
+        guard !uniqueShows.isEmpty else { return (0, 0) }
 
         var ratings: [Int: Double] = [:]
         for (id, category) in uniqueShows {
@@ -990,12 +1035,60 @@ final class NebRatingsStore {
             }
         }
 
-        let deltas: [Double] = reviews.compactMap { review in
-            guard let tmdb = ratings[review.showID] else { return nil }
-            return review.nebRating - tmdb
+        var sum = 0.0
+        var count = 0
+        for review in reviews {
+            if let tmdb = ratings[review.showID] {
+                sum += review.nebRating - tmdb
+                count += 1
+            }
         }
-        guard !deltas.isEmpty else { return nil }
-        return (deltas.reduce(0, +) / Double(deltas.count), deltas.count)
+        return (sum, count)
+    }
+
+    /// One-time compute+store for profiles that have never had the aggregate calculated.
+    /// No-op once the aggregate exists, so this never runs on a normal profile view.
+    private func backfillCriticAggregateIfNeeded() async {
+        guard let user = currentUser, user.needsCriticBackfill,
+              let me = authService.getCurrentUserID() else { return }
+
+        let result = await computeCriticAggregate(reviews: userReviews)
+        try? await profileService.setCriticAggregate(userID: me, sum: result.sum, count: result.count)
+        applyLocalCriticAggregate(sum: result.sum, count: result.count)
+    }
+
+    /// Incrementally adjust the stored aggregate for a single review change.
+    /// - oldRating: the review's previous rating (nil when adding a new review)
+    /// - newRating: the review's new rating (nil when deleting)
+    /// Only reviews whose show has a TMDB rating participate in the average.
+    private func adjustCriticAggregate(showID: Int, showCategory: Show.Category, oldRating: Double?, newRating: Double?) async {
+        guard let me = authService.getCurrentUserID() else { return }
+        guard let show = await fetchShowDetails(id: showID, category: showCategory),
+              let tmdb = show.rating, tmdb > 0 else { return }
+
+        var sumDelta = 0.0
+        var countDelta = 0
+        if let newRating { sumDelta += (newRating - tmdb); countDelta += 1 }
+        if let oldRating { sumDelta -= (oldRating - tmdb); countDelta -= 1 }
+        guard sumDelta != 0 || countDelta != 0 else { return }
+
+        try? await profileService.incrementCriticAggregate(userID: me, sumDelta: sumDelta, countDelta: countDelta)
+        applyLocalCriticAggregate(
+            sum: (currentUser?.criticDeltaSum ?? 0) + sumDelta,
+            count: (currentUser?.criticDeltaCount ?? 0) + countDelta
+        )
+    }
+
+    /// Mirror the aggregate locally so the gauge updates immediately without a profile reload.
+    private func applyLocalCriticAggregate(sum: Double, count: Int) {
+        guard let user = currentUser else { return }
+        currentUser = UserProfile(
+            id: user.id,
+            username: user.username,
+            avatarEmoji: user.avatarEmoji,
+            criticDeltaSum: sum,
+            criticDeltaCount: count
+        )
     }
 
     private func loadUserReviews(for userID: String) async {
@@ -1205,6 +1298,10 @@ final class NebRatingsStore {
                 await queryReviews(showID: show.id)
                 // Auto-remove from lists with that setting (single-owner lists only)
                 await performAutoRemoveFromLists(showID: showID, showCategory: show.category)
+                // Incrementally update the persisted critic-harshness aggregate (new review)
+                if author == currentUser?.username {
+                    await adjustCriticAggregate(showID: showID, showCategory: show.category, oldRating: nil, newRating: rating)
+                }
                 // Maybe show in-app review prompt after positive engagement
                 await MainActor.run {
                     AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
@@ -1214,7 +1311,7 @@ final class NebRatingsStore {
             }
         }
     }
-    
+
     private func updateReview(_ review: Review, comment: String, rating: Double, season: Int? = nil) async {
         let updatedReview = Review(
             id: review.id,
@@ -1251,6 +1348,10 @@ final class NebRatingsStore {
             await queryReviews(showID: review.showID)
             // Auto-remove from lists with that setting (single-owner lists only)
             await performAutoRemoveFromLists(showID: review.showID, showCategory: review.showCategory)
+            // Incrementally update the persisted critic-harshness aggregate (rating change)
+            if review.author == currentUser?.username {
+                await adjustCriticAggregate(showID: review.showID, showCategory: review.showCategory, oldRating: review.nebRating, newRating: rating)
+            }
             // Maybe show in-app review prompt after positive engagement
             await MainActor.run {
                 AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
@@ -1259,7 +1360,7 @@ final class NebRatingsStore {
             // Error updating review
         }
     }
-    
+
     func updateReview(_ review: Review, comment: String, rating: Double) {
         updateReview(review, comment: comment, rating: rating, newSeason: review.season)
     }
@@ -1303,6 +1404,11 @@ final class NebRatingsStore {
                 await queryReviews(showID: review.showID)
                 // Auto-remove from lists with that setting (single-owner lists only)
                 await performAutoRemoveFromLists(showID: review.showID, showCategory: review.showCategory)
+                // Incrementally update the persisted critic-harshness aggregate (rating change).
+                // A season-only edit leaves the rating unchanged, so this is a no-op in that case.
+                if review.author == currentUser?.username {
+                    await adjustCriticAggregate(showID: review.showID, showCategory: review.showCategory, oldRating: review.nebRating, newRating: rating)
+                }
                 // Maybe show in-app review prompt after positive engagement
                 await MainActor.run {
                     AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
@@ -1335,12 +1441,19 @@ final class NebRatingsStore {
             userReviews = userReviews.filter { $0.id != review.id }
         }
         
+        // Capture whether this is the current user's review before the async work.
+        let isOwnReview = review.author == currentUser?.username
+
         // Delete from Firestore in background
         Task {
             do {
                 try await reviewService.delete(review: review)
                 // Refresh reviews to ensure consistency with Firestore
                 await queryReviews(showID: review.showID)
+                // Incrementally update the persisted critic-harshness aggregate (removal)
+                if isOwnReview {
+                    await adjustCriticAggregate(showID: review.showID, showCategory: review.showCategory, oldRating: review.nebRating, newRating: nil)
+                }
             } catch {
                 // Handle error - restore optimistic update
                 // Restore the review

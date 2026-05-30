@@ -19,10 +19,9 @@ struct UserProfileView: View {
     @State private var profile: UserProfile?
     @State private var reviews: [Review] = []
     @State private var isLoadingReviews = true
-    @State private var criticDelta: Double?
-    @State private var criticSampleSize: Int = 0
-    @State private var isLoadingGauge = true
-    @State private var navigationPath = NavigationPath()
+    @State private var currentReviewPage: Int = 0
+
+    private let reviewsPerPage = 5
 
     init(userID: String, initialProfile: UserProfile? = nil) {
         self.userID = userID
@@ -30,35 +29,34 @@ struct UserProfileView: View {
         _profile = State(initialValue: initialProfile)
     }
 
+    // NOTE: This view is always pushed into an existing NavigationStack (FriendsView's),
+    // so it must NOT create its own — a nested NavigationStack renders as a broken
+    // placeholder. Navigation to show details is handled by NavigationLink values that
+    // resolve against destinations registered on the parent stack.
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    headerSection
-                    CriticGaugeView(delta: criticDelta, sampleSize: criticSampleSize, isLoading: isLoadingGauge)
-                    TopThreePicks(reviews: reviews) { show in
-                        navigationPath.append(show)
-                    }
-                    reviewsList
-                }
-                .padding(16)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                headerSection
+                // Reads the persisted aggregate on the profile doc — no TMDB recompute on view.
+                CriticGaugeView(
+                    delta: profile?.criticDelta,
+                    sampleSize: profile?.criticSampleSize ?? 0,
+                    isLoading: profile == nil
+                )
+                TopThreePicks(reviews: reviews)
+                reviewsList
             }
-            .navigationTitle(profile?.username ?? "Profile")
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: Show.self) { show in
-                ShowDetailView(show: show)
-            }
-            .navigationDestination(for: ShowWithContext.self) { ctx in
-                ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
-            }
-            .task { await load() }
-            .refreshable { await load() }
+            .padding(16)
         }
+        .navigationTitle(profile?.username ?? "Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await load() }
+        .refreshable { await load() }
     }
 
     private var headerSection: some View {
         VStack(spacing: 12) {
-            AvatarView(emoji: profile?.avatarEmoji, photoURL: profile?.avatarPhotoURL, size: 96)
+            AvatarView(emoji: profile?.avatarEmoji, size: 96)
             Text(profile?.username ?? "Loading…")
                 .font(.title2.bold())
             friendActionRow
@@ -120,6 +118,9 @@ struct UserProfileView: View {
 
     @ViewBuilder
     private var reviewsList: some View {
+        let allReviews = sortedReviews
+        let reviewPages = ShowDetailHelpers.chunkReviews(allReviews, pageSize: reviewsPerPage)
+
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "text.bubble")
@@ -128,8 +129,11 @@ struct UserProfileView: View {
                     .font(.subheadline.bold())
                     .foregroundStyle(.secondary)
                 Spacer()
+                if !isLoadingReviews && !allReviews.isEmpty && reviewPages.count > 1 {
+                    pageChevrons(pageCount: reviewPages.count)
+                }
                 if !isLoadingReviews {
-                    Text("\(reviews.count)")
+                    Text("\(allReviews.count)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -142,25 +146,95 @@ struct UserProfileView: View {
                     Spacer()
                 }
                 .padding(.vertical, 30)
-            } else if reviews.isEmpty {
+            } else if allReviews.isEmpty {
                 ContentUnavailableView("No reviews yet", systemImage: "text.bubble")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
             } else {
-                LazyVStack(spacing: 10) {
-                    ForEach(sortedReviews) { review in
-                        let show = store.show(for: review)
-                        if let show {
-                            ReviewCard(
-                                review: review,
-                                showTitle: show.title,
-                                showCategory: show.category,
-                                isOwnReview: store.currentUser?.id == userID,
-                                onTap: {
-                                    navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
-                                },
-                                useLighterBackground: true
-                            )
+                reviewsCarousel(reviewPages: reviewPages, allReviews: allReviews)
+            }
+        }
+        .onChange(of: reviews.count) { _, newCount in
+            // Clamp page index if reviews shrink (e.g. after refresh).
+            let pageCount = max(1, Int(ceil(Double(newCount) / Double(reviewsPerPage))))
+            if currentReviewPage >= pageCount {
+                currentReviewPage = max(0, pageCount - 1)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pageChevrons(pageCount: Int) -> some View {
+        HStack(spacing: 4) {
+            Button {
+                if currentReviewPage > 0 { currentReviewPage -= 1 }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.subheadline)
+                    .foregroundStyle(currentReviewPage > 0 ? Color.primary : Color.gray.opacity(0.3))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .disabled(currentReviewPage == 0)
+            .buttonStyle(.plain)
+
+            Button {
+                if currentReviewPage < pageCount - 1 { currentReviewPage += 1 }
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.subheadline)
+                    .foregroundStyle(currentReviewPage < pageCount - 1 ? Color.primary : Color.gray.opacity(0.3))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .disabled(currentReviewPage >= pageCount - 1)
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder
+    private func reviewsCarousel(reviewPages: [[Review]], allReviews: [Review]) -> some View {
+        VStack(spacing: 12) {
+            TabView(selection: $currentReviewPage) {
+                ForEach(0..<reviewPages.count, id: \.self) { pageIndex in
+                    VStack(spacing: 10) {
+                        ForEach(reviewPages[pageIndex]) { review in
+                            if let show = store.show(for: review) {
+                                NavigationLink(value: ShowWithContext(show: show, initialSeasonFilter: review.season)) {
+                                    ReviewCard(
+                                        review: review,
+                                        showTitle: show.title,
+                                        showCategory: show.category,
+                                        isOwnReview: store.currentUser?.id == userID,
+                                        authorAvatarEmoji: profile?.avatarEmoji,
+                                        isFriend: store.currentUser?.id != userID && store.isFriend(userID),
+                                        useLighterBackground: true
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 2)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                    .tag(pageIndex)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: ShowDetailHelpers.calculateActualCarouselHeight(for: allReviews, reviewPages: reviewPages))
+
+            if reviewPages.count > 1 {
+                if reviewPages.count > 10 {
+                    Text("\(currentReviewPage + 1) of \(reviewPages.count)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    HStack(spacing: 6) {
+                        ForEach(0..<reviewPages.count, id: \.self) { index in
+                            Circle()
+                                .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
+                                .frame(width: 8, height: 8)
                         }
                     }
                 }
@@ -173,22 +247,12 @@ struct UserProfileView: View {
     }
 
     private func load() async {
-        if profile == nil {
-            profile = await store.fetchProfile(userID: userID)
+        // Always refetch the profile so the persisted critic aggregate is current.
+        if let fresh = await store.fetchProfile(userID: userID) {
+            profile = fresh
         }
         isLoadingReviews = true
-        let fetched = await store.fetchReviews(for: userID)
-        reviews = fetched
+        reviews = await store.fetchReviews(for: userID)
         isLoadingReviews = false
-
-        isLoadingGauge = true
-        if let result = await store.computeCriticDelta(reviews: fetched) {
-            criticDelta = result.delta
-            criticSampleSize = result.sampleSize
-        } else {
-            criticDelta = nil
-            criticSampleSize = 0
-        }
-        isLoadingGauge = false
     }
 }

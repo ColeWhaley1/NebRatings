@@ -123,11 +123,14 @@ struct ReviewsFeedView: View {
                     // Add ID for stable animations
                     let show = store.show(for: review)
                     let isOwnReview = store.currentUser?.username == review.author
+                    let authorProfile = store.cachedProfile(for: review.authorID)
                     if let show = show {
                         ReviewCard(review: review,
                                    showTitle: show.title,
                                    showCategory: show.category,
                                    isOwnReview: isOwnReview,
+                                   authorAvatarEmoji: authorProfile?.avatarEmoji,
+                                   isFriend: store.isFriend(review.authorID),
                                    onTap: {
                                        navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
                                    },
@@ -228,20 +231,32 @@ struct ReviewsFeedView: View {
     private var displayableReviews: [Review] {
         // While querying, use cached reviews if available to prevent flicker
         let allReviews = store.isQueryingReviews && !cachedReviews.isEmpty ? cachedReviews : store.reviews
-        
+
         // Update cache when not querying
         if !store.isQueryingReviews {
             cachedReviews = store.reviews
         }
-        
+
+        // Friends' reviews bubble to the top, then most-recent first.
+        let sorted = sortFriendsFirst(allReviews)
+
         // If searching, show all matching reviews
         if !searchText.isEmpty {
-            return allReviews
+            return sorted
         }
-        
-        // When not searching, limit to 10 most recent reviews
-        // Reviews are already sorted by timestamp (newest first) from the store
-        return Array(allReviews.prefix(10))
+
+        // When not searching, limit to 10 (friends prioritized within that window)
+        return Array(sorted.prefix(10))
+    }
+
+    /// Friends' reviews first, then by recency.
+    private func sortFriendsFirst(_ reviews: [Review]) -> [Review] {
+        reviews.sorted { lhs, rhs in
+            let lf = store.isFriend(lhs.authorID)
+            let rf = store.isFriend(rhs.authorID)
+            if lf != rf { return lf }
+            return lhs.timestamp > rhs.timestamp
+        }
     }
 }
 

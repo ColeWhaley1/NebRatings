@@ -36,6 +36,12 @@ struct FriendsView: View {
             .navigationDestination(for: UserProfileDestination.self) { dest in
                 UserProfileView(userID: dest.userID, initialProfile: dest.profile)
             }
+            .navigationDestination(for: Show.self) { show in
+                ShowDetailView(show: show)
+            }
+            .navigationDestination(for: ShowWithContext.self) { ctx in
+                ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
+            }
             .onChange(of: searchText) { _, newValue in
                 runSearch(newValue)
             }
@@ -139,15 +145,18 @@ struct FriendsView: View {
             navigationPath.append(UserProfileDestination(userID: profile.id, profile: profile))
         } label: {
             HStack(spacing: 12) {
-                AvatarView(emoji: profile.avatarEmoji, photoURL: profile.avatarPhotoURL, size: 44)
+                AvatarView(emoji: profile.avatarEmoji, size: 44)
                 Text(profile.username)
                     .font(.body)
                     .foregroundStyle(.primary)
-                Spacer()
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -158,7 +167,7 @@ struct FriendsView: View {
                 navigationPath.append(UserProfileDestination(userID: profile.id, profile: profile))
             } label: {
                 HStack(spacing: 12) {
-                    AvatarView(emoji: profile.avatarEmoji, photoURL: profile.avatarPhotoURL, size: 44)
+                    AvatarView(emoji: profile.avatarEmoji, size: 44)
                     Text(profile.username)
                         .foregroundStyle(.primary)
                 }
@@ -189,7 +198,7 @@ struct FriendsView: View {
 
     private func outgoingRow(profile: UserProfile) -> some View {
         HStack(spacing: 12) {
-            AvatarView(emoji: profile.avatarEmoji, photoURL: profile.avatarPhotoURL, size: 44)
+            AvatarView(emoji: profile.avatarEmoji, size: 44)
             Text(profile.username)
             Spacer()
             Text("Pending")
@@ -212,7 +221,7 @@ struct FriendsView: View {
                 navigationPath.append(UserProfileDestination(userID: profile.id, profile: profile))
             } label: {
                 HStack(spacing: 12) {
-                    AvatarView(emoji: profile.avatarEmoji, photoURL: profile.avatarPhotoURL, size: 44)
+                    AvatarView(emoji: profile.avatarEmoji, size: 44)
                     Text(profile.username).foregroundStyle(.primary)
                 }
             }

@@ -26,9 +26,6 @@ struct ProfileView: View {
     @State private var nameError: String?
     @State private var currentReviewPage: Int = 0
     @State private var navigationPath = NavigationPath()
-    @State private var criticDelta: Double?
-    @State private var criticSampleSize: Int = 0
-    @State private var isLoadingGauge = true
     @State private var isShowingAvatarPicker = false
 
     var body: some View {
@@ -58,12 +55,8 @@ struct ProfileView: View {
             .navigationDestination(for: ShowWithContext.self) { ctx in
                 ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
             }
-            .task(id: store.userReviews.count) {
-                await refreshCriticGauge()
-            }
             .refreshable {
                 await store.loadUserProfile()
-                await refreshCriticGauge()
             }
             .sheet(isPresented: $isShowingAvatarPicker) {
                 AvatarPickerView()
@@ -74,31 +67,22 @@ struct ProfileView: View {
 
     private var statsSection: some View {
         Section {
-            CriticGaugeView(delta: criticDelta, sampleSize: criticSampleSize, isLoading: isLoadingGauge)
-                .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+            // Reads the persisted aggregate maintained on each review write — no recompute here.
+            CriticGaugeView(
+                delta: store.currentUser?.criticDelta,
+                sampleSize: store.currentUser?.criticSampleSize ?? 0,
+                isLoading: store.currentUser == nil
+            )
+            .listRowInsets(EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
 
-            TopThreePicks(reviews: store.userReviews) { show in
-                navigationPath.append(show)
-            }
-            .environment(store)
+            TopThreePicks(reviews: store.userReviews)
+                .environment(store)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
         }
-    }
-
-    private func refreshCriticGauge() async {
-        isLoadingGauge = true
-        if let result = await store.computeCriticDelta(reviews: store.userReviews) {
-            criticDelta = result.delta
-            criticSampleSize = result.sampleSize
-        } else {
-            criticDelta = nil
-            criticSampleSize = 0
-        }
-        isLoadingGauge = false
     }
 
     private var profileSection: some View {
@@ -109,7 +93,7 @@ struct ProfileView: View {
                         isShowingAvatarPicker = true
                     } label: {
                         ZStack(alignment: .bottomTrailing) {
-                            AvatarView(emoji: user.avatarEmoji, photoURL: user.avatarPhotoURL, size: 64)
+                            AvatarView(emoji: user.avatarEmoji, size: 64)
                             Image(systemName: "pencil.circle.fill")
                                 .font(.system(size: 22))
                                 .foregroundStyle(.white, .purple)
@@ -338,7 +322,8 @@ struct ProfileView: View {
                                                         ReviewCard(review: review,
                                                                    showTitle: show.title,
                                                                    showCategory: show.category,
-                                                                   isOwnReview: true)
+                                                                   isOwnReview: true,
+                                                                   authorAvatarEmoji: store.currentUser?.avatarEmoji)
                                                     }
                                                     .buttonStyle(.plain)
                                                 }

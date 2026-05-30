@@ -35,19 +35,32 @@ struct ExpandedReviewView: View {
                         // Header
                         VStack(alignment: .leading, spacing: 12) {
                             // Author and rating
-                            HStack(alignment: .top) {
+                            HStack(alignment: .top, spacing: 12) {
+                                let authorProfile = store.cachedProfile(for: review.authorID)
+                                AvatarView(emoji: authorProfile?.avatarEmoji, size: 44)
+
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(review.author)
-                                        .font(.title2.bold())
-                                        .foregroundStyle(.primary)
-                                    
+                                    HStack(spacing: 6) {
+                                        Text(review.author)
+                                            .font(.title2.bold())
+                                            .foregroundStyle(.primary)
+                                        if !isOwnReview && store.isFriend(review.authorID) {
+                                            Text("Friend")
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.teal)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(Color.teal.opacity(0.18), in: Capsule())
+                                        }
+                                    }
+
                                     Text(review.showTitle)
                                         .font(.headline)
                                         .foregroundStyle(.secondary)
                                 }
-                                
+
                                 Spacer()
-                                
+
                                 NebRatingView(rating: review.nebRating)
                             }
                             

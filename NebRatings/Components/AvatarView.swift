@@ -7,22 +7,16 @@ import SwiftUI
 
 struct AvatarView: View {
     let emoji: String?
-    let photoURL: String?
     var size: CGFloat = 56
 
-    init(emoji: String?, photoURL: String? = nil, size: CGFloat = 56) {
+    init(emoji: String?, size: CGFloat = 56) {
         self.emoji = emoji
-        self.photoURL = photoURL
         self.size = size
     }
 
     var body: some View {
         Group {
-            if let photoURL, !photoURL.isEmpty {
-                AsyncImageView(urlString: photoURL)
-                    .frame(width: size, height: size)
-                    .clipShape(Circle())
-            } else if let emoji, !emoji.isEmpty {
+            if let emoji, !emoji.isEmpty {
                 ZStack {
                     Circle().fill(Avatar.backgroundColor(for: emoji))
                     Text(emoji)
