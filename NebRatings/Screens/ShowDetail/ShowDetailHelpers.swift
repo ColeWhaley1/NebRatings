@@ -20,29 +20,8 @@ struct ReviewHeightPreferenceKey: PreferenceKey {
 // MARK: - Review Helpers
 
 enum ShowDetailHelpers {
-    static func chunkReviews(_ reviews: [Review], pageSize: Int) -> [[Review]] {
-        var chunks: [[Review]] = []
-        for i in stride(from: 0, to: reviews.count, by: pageSize) {
-            let chunk = Array(reviews[i..<min(i + pageSize, reviews.count)])
-            chunks.append(chunk)
-        }
-        return chunks
-    }
-    
-    static func calculateActualCarouselHeight(for reviews: [Review], reviewPages: [[Review]]) -> CGFloat {
-        let cardHeight: CGFloat = 220
-        let spacing: CGFloat = 8
-        let buffer: CGFloat = 48
-        
-        var maxPageHeight: CGFloat = 0
-        for page in reviewPages {
-            let reviewCount = page.count
-            let pageHeight = CGFloat(reviewCount) * cardHeight + CGFloat(max(0, reviewCount - 1)) * spacing + buffer
-            maxPageHeight = max(maxPageHeight, pageHeight)
-        }
-        return maxPageHeight
-    }
-    
+    // Pagination helpers moved to `ReviewPagination` in PaginatedReviewsCarousel.swift.
+
     static func ratingEmoji(for rating: Double) -> String? {
         if rating >= 8.0 {
             return "🔥"

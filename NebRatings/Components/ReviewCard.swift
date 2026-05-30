@@ -124,13 +124,6 @@ struct ReviewCard: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Color.purple.opacity(0.15), in: Capsule())
-                    } else if isFriend {
-                        Text("Friend")
-                            .font(.caption.bold())
-                            .foregroundStyle(.teal)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.teal.opacity(0.18), in: Capsule())
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -151,10 +144,29 @@ struct ReviewCard: View {
             // Spacer to push timestamp to bottom
             Spacer()
             
-            // Timestamp fixed to bottom left with padding
-            Text(review.timestamp.formatted(date: .abbreviated, time: .shortened))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            // Bottom row: timestamp on the left, friend badge pinned to the right
+            // (single-line, fixed-size — the badge never wraps or shrinks).
+            HStack(spacing: 8) {
+                Text(review.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .layoutPriority(0)
+
+                Spacer(minLength: 8)
+
+                if isFriend && !isOwnReview {
+                    Text("Friend")
+                        .font(.caption.bold())
+                        .foregroundStyle(.teal)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.teal.opacity(0.18), in: Capsule())
+                        .layoutPriority(1)
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 14)

@@ -235,155 +235,47 @@ struct ProfileView: View {
                 ContentUnavailableView("No reviews posted", systemImage: "text.bubble", description: Text("Start dropping nebs from the Discover tab."))
             } else {
                 let allReviews = sortedReviews
-                let reviewPages = chunkReviews(allReviews, pageSize: 5)
-                
-                // Sort filter picker with styled header
-                HStack {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Picker("", selection: $sortOption) {
-                        ForEach(ReviewSortOption.allCases) { option in
-                            Text(option.rawValue).tag(option)
-                        }
+                let pageCount = ReviewPagination.pageCount(for: allReviews.count, pageSize: 5)
+
+                // Sort picker
+                ReviewSortPicker(selection: $sortOption)
+                    .listRowSeparator(.hidden)
+                    .padding(.vertical, 4)
+                    .onChange(of: sortOption) { _, _ in
+                        currentReviewPage = 0
                     }
-                    .pickerStyle(.menu)
-                }
-                .listRowSeparator(.hidden)
-                .padding(.vertical, 4)
-                .onChange(of: sortOption) { _, _ in
-                    // Reset to first page when sort changes
-                    currentReviewPage = 0
-                }
-                
-                // Navigation arrows for carousel
-                if !allReviews.isEmpty && reviewPages.count > 1 {
+
+                // Pager chevrons (only when there's more than one page)
+                if pageCount > 1 {
                     HStack {
                         Spacer()
-                        
-                        // Previous page arrow - separate button
-                        Button {
-                            if currentReviewPage > 0 {
-                                currentReviewPage -= 1
-                            }
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.title3)
-                                .foregroundStyle(currentReviewPage > 0 ? Color.primary : Color.gray.opacity(0.3))
-                                .frame(width: 32, height: 32)
-                        }
-                        .disabled(currentReviewPage == 0)
-                        .buttonStyle(.plain)
-                        
-                        // Spacing between buttons
-                        Spacer()
-                            .frame(width: 8)
-                        
-                        // Next page arrow - separate button
-                        Button {
-                            if currentReviewPage < reviewPages.count - 1 {
-                                currentReviewPage += 1
-                            }
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .font(.title3)
-                                .foregroundStyle(currentReviewPage < reviewPages.count - 1 ? Color.primary : Color.gray.opacity(0.3))
-                                .frame(width: 32, height: 32)
-                        }
-                        .disabled(currentReviewPage >= reviewPages.count - 1)
-                        .buttonStyle(.plain)
+                        ReviewPagerChevrons(pageCount: pageCount, currentPage: $currentReviewPage)
                     }
                     .listRowSeparator(.hidden)
                 }
-                
-                // Carousel for reviews
-                if allReviews.isEmpty {
-                    ContentUnavailableView("No reviews", systemImage: "text.bubble")
-                } else {
-                    VStack(spacing: 12) {
-                        // TabView for smooth page transitions
-                        TabView(selection: $currentReviewPage) {
-                            ForEach(0..<reviewPages.count, id: \.self) { pageIndex in
-                                HStack(spacing: 0) {
-                                    // Left spacing for gap between pages
-                                    Spacer()
-                                        .frame(width: 8)
-                                    
-                                    // Content area with full-width cards using ScrollView + LazyVStack
-                                    ScrollView {
-                                        LazyVStack(spacing: 8) {
-                                            ForEach(reviewPages[pageIndex]) { review in
-                                                let show = store.show(for: review)
-                                                if let show = show {
-                                                    Button {
-                                                        navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
-                                                    } label: {
-                                                        ReviewCard(review: review,
-                                                                   showTitle: show.title,
-                                                                   showCategory: show.category,
-                                                                   isOwnReview: true,
-                                                                   authorAvatarEmoji: store.currentUser?.avatarEmoji)
-                                                    }
-                                                    .buttonStyle(.plain)
-                                                }
-                                            }
-                                            
-                                            // Subtle message if less than 5 reviews on this page
-                                            if reviewPages[pageIndex].count < 5 {
-                                                Spacer()
-                                                    .frame(height: 20)
-                                                
-                                                Text("Keep reviewing to see more!")
-                                                    .font(.caption)
-                                                    .foregroundStyle(.secondary)
-                                                    .padding(.top, 8)
-                                                
-                                                Spacer()
-                                            }
-                                        }
-                                        .padding(.top, 8)
-                                        .padding(.bottom, 8)
-                                    }
-                                    .scrollDisabled(true)
-                                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                                    
-                                    // Right spacing for gap between pages
-                                    Spacer()
-                                        .frame(width: 8)
-                                }
-                                .tag(pageIndex)
-                            }
+
+                // Carousel
+                PaginatedReviewsCarousel(
+                    reviews: allReviews,
+                    pageSize: 5,
+                    currentPage: $currentReviewPage,
+                    partialPageMessage: "Keep reviewing to see more!"
+                ) { review in
+                    if let show = store.show(for: review) {
+                        Button {
+                            navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
+                        } label: {
+                            ReviewCard(review: review,
+                                       showTitle: show.title,
+                                       showCategory: show.category,
+                                       isOwnReview: true,
+                                       authorAvatarEmoji: store.currentUser?.avatarEmoji)
                         }
-                        .tabViewStyle(.page(indexDisplayMode: .never))
-                        .frame(height: calculateActualCarouselHeight(for: allReviews, reviewPages: reviewPages))
-                    
-                        // Page indicator
-                        if reviewPages.count > 1 {
-                            if reviewPages.count > 10 {
-                                // Use number indicator for more than 50 reviews (10+ pages)
-                                Text("\(currentReviewPage + 1) of \(reviewPages.count)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.top, 4)
-                                    .padding(.bottom, 16)
-                            } else {
-                                // Use dots for 10 or fewer pages
-                                HStack(spacing: 6) {
-                                    ForEach(0..<reviewPages.count, id: \.self) { index in
-                                        Circle()
-                                            .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
-                                            .frame(width: 8, height: 8)
-                                    }
-                                }
-                                .padding(.top, 4)
-                                .padding(.bottom, 16)
-                            }
-                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets())
-                }
+                .listRowInsets(EdgeInsets())
             }
         } header: {
             Text("Your Reviews")
@@ -392,52 +284,6 @@ struct ProfileView: View {
             EditReviewView(review: review)
                 .environment(store)
         }
-        .onChange(of: sortedReviews.count) { _, _ in
-            // Reset to first page if reviews change
-            if currentReviewPage > 0 && sortedReviews.isEmpty {
-                currentReviewPage = 0
-            }
-        }
-    }
-    
-    private func chunkReviews(_ reviews: [Review], pageSize: Int) -> [[Review]] {
-        var chunks: [[Review]] = []
-        for i in stride(from: 0, to: reviews.count, by: pageSize) {
-            let chunk = Array(reviews[i..<min(i + pageSize, reviews.count)])
-            chunks.append(chunk)
-        }
-        return chunks
-    }
-    
-    private func calculateMaxCarouselHeight(for reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 220pt per review card + 8pt spacing between cards
-        // listRowInsets add 8pt top/bottom padding per row (already included in spacing calculation)
-        // Max 5 reviews per page
-        let cardHeight: CGFloat = 220
-        let spacing: CGFloat = 8  // This is the spacing between cards (8pt from listRowInsets bottom + 8pt from next row's top)
-        let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 16)
-        let maxReviewsPerPage = 5
-        // Calculate: (5 cards * 200) + (4 gaps * 8) + buffer = 1000 + 32 + 48 = 1080
-        let totalHeight = CGFloat(maxReviewsPerPage) * cardHeight + CGFloat(maxReviewsPerPage - 1) * spacing + buffer
-        return totalHeight
-    }
-    
-    private func calculateActualCarouselHeight(for allReviews: [Review], reviewPages: [[Review]]) -> CGFloat {
-        // Fixed height: 220pt per review card + 8pt spacing between cards
-        // listRowInsets add 8pt top/bottom padding per row, creating 8pt gaps between cards
-        // Add extra buffer to prevent cutoff
-        let cardHeight: CGFloat = 220
-        let spacing: CGFloat = 8
-        let buffer: CGFloat = 48  // Extra buffer to prevent cutoff (increased from 32)
-        
-        // Calculate height for each page and use the maximum
-        var maxPageHeight: CGFloat = 0
-        for page in reviewPages {
-            let reviewCount = page.count
-            let pageHeight = CGFloat(reviewCount) * cardHeight + CGFloat(max(0, reviewCount - 1)) * spacing + buffer
-            maxPageHeight = max(maxPageHeight, pageHeight)
-        }
-        return maxPageHeight
     }
     
     private func formatProfileErrorMessage(_ error: Error) -> String {

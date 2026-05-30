@@ -119,20 +119,23 @@ struct UserProfileView: View {
     @ViewBuilder
     private var reviewsList: some View {
         let allReviews = sortedReviews
-        let reviewPages = ShowDetailHelpers.chunkReviews(allReviews, pageSize: reviewsPerPage)
+        let pageCount = ReviewPagination.pageCount(for: allReviews.count, pageSize: reviewsPerPage)
 
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Image(systemName: "text.bubble")
                     .foregroundStyle(.secondary)
                 Text("Reviews")
                     .font(.subheadline.bold())
                     .foregroundStyle(.secondary)
                 Spacer()
-                if !isLoadingReviews && !allReviews.isEmpty && reviewPages.count > 1 {
-                    pageChevrons(pageCount: reviewPages.count)
-                }
                 if !isLoadingReviews {
+                    ReviewPagerChevrons(
+                        pageCount: pageCount,
+                        currentPage: $currentReviewPage,
+                        size: 28,
+                        font: .subheadline
+                    )
                     Text("\(allReviews.count)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -151,91 +154,24 @@ struct UserProfileView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
             } else {
-                reviewsCarousel(reviewPages: reviewPages, allReviews: allReviews)
-            }
-        }
-        .onChange(of: reviews.count) { _, newCount in
-            // Clamp page index if reviews shrink (e.g. after refresh).
-            let pageCount = max(1, Int(ceil(Double(newCount) / Double(reviewsPerPage))))
-            if currentReviewPage >= pageCount {
-                currentReviewPage = max(0, pageCount - 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func pageChevrons(pageCount: Int) -> some View {
-        HStack(spacing: 4) {
-            Button {
-                if currentReviewPage > 0 { currentReviewPage -= 1 }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.subheadline)
-                    .foregroundStyle(currentReviewPage > 0 ? Color.primary : Color.gray.opacity(0.3))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .disabled(currentReviewPage == 0)
-            .buttonStyle(.plain)
-
-            Button {
-                if currentReviewPage < pageCount - 1 { currentReviewPage += 1 }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.subheadline)
-                    .foregroundStyle(currentReviewPage < pageCount - 1 ? Color.primary : Color.gray.opacity(0.3))
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .disabled(currentReviewPage >= pageCount - 1)
-            .buttonStyle(.plain)
-        }
-    }
-
-    @ViewBuilder
-    private func reviewsCarousel(reviewPages: [[Review]], allReviews: [Review]) -> some View {
-        VStack(spacing: 12) {
-            TabView(selection: $currentReviewPage) {
-                ForEach(0..<reviewPages.count, id: \.self) { pageIndex in
-                    VStack(spacing: 10) {
-                        ForEach(reviewPages[pageIndex]) { review in
-                            if let show = store.show(for: review) {
-                                NavigationLink(value: ShowWithContext(show: show, initialSeasonFilter: review.season)) {
-                                    ReviewCard(
-                                        review: review,
-                                        showTitle: show.title,
-                                        showCategory: show.category,
-                                        isOwnReview: store.currentUser?.id == userID,
-                                        authorAvatarEmoji: profile?.avatarEmoji,
-                                        isFriend: store.currentUser?.id != userID && store.isFriend(userID),
-                                        useLighterBackground: true
-                                    )
-                                }
-                                .buttonStyle(.plain)
-                            }
+                PaginatedReviewsCarousel(
+                    reviews: allReviews,
+                    pageSize: reviewsPerPage,
+                    currentPage: $currentReviewPage
+                ) { review in
+                    if let show = store.show(for: review) {
+                        NavigationLink(value: ShowWithContext(show: show, initialSeasonFilter: review.season)) {
+                            ReviewCard(
+                                review: review,
+                                showTitle: show.title,
+                                showCategory: show.category,
+                                isOwnReview: store.currentUser?.id == userID,
+                                authorAvatarEmoji: profile?.avatarEmoji,
+                                isFriend: store.currentUser?.id != userID && store.isFriend(userID),
+                                useLighterBackground: true
+                            )
                         }
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 2)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                    .tag(pageIndex)
-                }
-            }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: ShowDetailHelpers.calculateActualCarouselHeight(for: allReviews, reviewPages: reviewPages))
-
-            if reviewPages.count > 1 {
-                if reviewPages.count > 10 {
-                    Text("\(currentReviewPage + 1) of \(reviewPages.count)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    HStack(spacing: 6) {
-                        ForEach(0..<reviewPages.count, id: \.self) { index in
-                            Circle()
-                                .fill(index == currentReviewPage ? Color.primary : Color.gray.opacity(0.3))
-                                .frame(width: 8, height: 8)
-                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
