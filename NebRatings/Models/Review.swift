@@ -18,6 +18,11 @@ struct Review: Identifiable, Hashable {
     let nebRating: Double
     let timestamp: Date
     let season: Int?  // Optional season number (nil means review for entire show)
+    /// Reactions to this review, keyed by reactor's userID. The map structure
+    /// enforces "one emoji per user" by construction (each user has at most
+    /// one key in the map). Stored as a map field in Firestore so a single
+    /// reaction can be set/cleared atomically via `updateData(["reactions.<uid>": …])`.
+    var reactions: [String: String]
 
     init(id: UUID = UUID(),
          showID: Int,
@@ -28,7 +33,8 @@ struct Review: Identifiable, Hashable {
          comment: String,
          nebRating: Double,
          timestamp: Date = .now,
-         season: Int? = nil) {
+         season: Int? = nil,
+         reactions: [String: String] = [:]) {
         self.id = id
         self.showID = showID
         self.showTitle = showTitle
@@ -39,7 +45,35 @@ struct Review: Identifiable, Hashable {
         self.nebRating = nebRating
         self.timestamp = timestamp
         self.season = season
+        self.reactions = reactions
     }
+}
+
+extension Review {
+    /// (emoji, count) pairs sorted by count descending, with timestamp-stable
+    /// tiebreaker via the emoji string itself. Suitable for direct rendering
+    /// in a reactions bar.
+    var reactionCounts: [(emoji: String, count: Int)] {
+        var counts: [String: Int] = [:]
+        for emoji in reactions.values {
+            counts[emoji, default: 0] += 1
+        }
+        return counts
+            .map { (emoji: $0.key, count: $0.value) }
+            .sorted { lhs, rhs in
+                if lhs.count != rhs.count { return lhs.count > rhs.count }
+                return lhs.emoji < rhs.emoji
+            }
+    }
+
+    /// The emoji the given user reacted with, if any.
+    func reaction(by userID: String?) -> String? {
+        guard let userID else { return nil }
+        return reactions[userID]
+    }
+
+    /// Total reaction count across all emojis on this review.
+    var totalReactionCount: Int { reactions.count }
 }
 
 extension Review {

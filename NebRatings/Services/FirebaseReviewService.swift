@@ -25,6 +25,10 @@ protocol ReviewService {
     func update(review: Review) async throws
     func delete(review: Review) async throws
     func deleteAllReviewsByUser(userID: String) async throws
+    /// Sets or clears the reaction for `userID` on `reviewID`.
+    /// Passing `emoji: nil` removes that user's reaction.
+    /// Updates only the targeted map key — never overwrites other users' reactions.
+    func setReaction(reviewID: UUID, userID: String, emoji: String?) async throws
 }
 
 struct FirebaseReviewService: ReviewService {
@@ -124,6 +128,9 @@ struct FirebaseReviewService: ReviewService {
             // Parse author's userId (used for avatar / friend resolution)
             let authorID = data["userId"] as? String
 
+            // Parse reactions (userID -> emoji map). Absent on older docs.
+            let reactions = (data["reactions"] as? [String: String]) ?? [:]
+
             // Create Review model matching the struct exactly
             let review = Review(
                 id: id,
@@ -135,7 +142,8 @@ struct FirebaseReviewService: ReviewService {
                 comment: comment,
                 nebRating: nebRating,
                 timestamp: timestamp,
-                season: season
+                season: season,
+                reactions: reactions
             )
             
             reviews.append(review)
@@ -178,7 +186,11 @@ struct FirebaseReviewService: ReviewService {
             "comment": review.comment,
             "nebRating": review.nebRating,
             "timestamp": Timestamp(date: review.timestamp),
-            "userId": userID  // Keep userId for querying by author
+            "userId": userID,  // Keep userId for querying by author
+            // Initialize reactions as an empty map so the security rule's
+            // `resource.data.reactions` reference doesn't fail with `null`
+            // when the first reactor tries to add a key.
+            "reactions": review.reactions
         ]
         
         // Add season if it exists
@@ -199,7 +211,11 @@ struct FirebaseReviewService: ReviewService {
             throw NSError(domain: "FirebaseReviewService", code: -2, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
         }
         
-        // Map Review model to Firestore data structure - matching Review struct exactly
+        // Map Review model to Firestore data structure - matching Review struct exactly.
+        // Note: we deliberately do NOT include `reactions` here. `updateData`
+        // patches only the listed fields, so omitting it preserves the
+        // server-side reactions map (which may have reactions written by
+        // others since this client last read).
         var reviewData: [String: Any] = [
             "showID": review.showID,
             "showTitle": review.showTitle,
@@ -210,17 +226,29 @@ struct FirebaseReviewService: ReviewService {
             "timestamp": Timestamp(date: review.timestamp),
             "userId": userID  // Keep userId for querying by author
         ]
-        
+
         // Add season if it exists
         if let season = review.season {
             reviewData["season"] = season
         }
-        
+
         // Update the existing document
         // Note: If season is nil, we don't include it in the update, preserving existing value or leaving it absent
         try await db.collection("review").document(review.id.uuidString).updateData(reviewData)
     }
     
+    func setReaction(reviewID: UUID, userID: String, emoji: String?) async throws {
+        guard FirebaseApp.app() != nil else {
+            throw NSError(domain: "FirebaseReviewService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
+        }
+        // Target a single key inside the `reactions` map. This is atomic and
+        // never touches other users' reactions — important since reaction docs
+        // can have concurrent writers.
+        let key = "reactions.\(userID)"
+        let value: Any = emoji ?? FieldValue.delete()
+        try await db.collection("review").document(reviewID.uuidString).updateData([key: value])
+    }
+
     func delete(review: Review) async throws {
         guard FirebaseApp.app() != nil else {
             throw NSError(domain: "FirebaseReviewService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])

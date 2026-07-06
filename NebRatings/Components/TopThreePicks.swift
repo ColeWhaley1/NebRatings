@@ -9,6 +9,12 @@ struct TopThreePicks: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
 
     let reviews: [Review]
+    /// Called when the user taps a pick. The parent decides how to navigate
+    /// (push onto a `NavigationPath`, set a `navigationDestination(item:)`
+    /// binding, etc.). Using an explicit closure here — instead of an inner
+    /// `NavigationLink` — avoids the SwiftUI tap-bleed bug where multiple
+    /// side-by-side `NavigationLink`s inside a `List` row all fire on tap.
+    let onSelect: (Show) -> Void
 
     private static let medals = ["🥇", "🥈", "🥉"]
 
@@ -57,11 +63,20 @@ struct TopThreePicks: View {
 
     @ViewBuilder
     private func pickCard(review: Review, rank: Int) -> some View {
-        // store.show(for:) always resolves at least a minimal Show, so the link is always valid.
-        if let show = store.show(for: review) {
-            NavigationLink(value: show) {
+        // store.show(for:) always resolves at least a minimal Show.
+        let show = store.show(for: review)
+        if let show {
+            Button {
+                onSelect(show)
+            } label: {
                 pickCardLabel(review: review, rank: rank, show: show)
+                    .contentShape(Rectangle())
             }
+            // `.plain` preserves each Text's own foreground style (so the
+            // title/rating stay primary instead of being tinted blue by
+            // the accent color, which `.borderless` would apply). The
+            // multi-fire tap bug we fixed was specific to NavigationLink;
+            // Button + explicit closure isolates each tap on its own.
             .buttonStyle(.plain)
         } else {
             pickCardLabel(review: review, rank: rank, show: nil)
@@ -96,16 +111,17 @@ struct TopThreePicks: View {
                 }
 
                 Text(review.showTitle)
-                    .font(.caption.bold())
+                    .font(.subheadline.bold())
                     .foregroundStyle(.primary)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
 
-                HStack(spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
                     Text(String(format: "%.1f", review.nebRating))
-                        .font(.caption2.bold())
+                        .font(.title3.bold())
+                        .foregroundStyle(.primary)
                     Text("/ 10")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }

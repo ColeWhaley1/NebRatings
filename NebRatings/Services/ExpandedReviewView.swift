@@ -33,38 +33,57 @@ struct ExpandedReviewView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         // Header
+                        //
+                        // Layout (all left-aligned, top-to-bottom):
+                        //   1. Avatar (top-left) + Rating (top-right, where
+                        //      it's always lived)
+                        //   2. Author name (full width, can wrap)
+                        //   3. Friend badge (only when applicable)
+                        //   4. Show title (full width, can wrap)
+                        //   5. Timestamp
+                        //
+                        // Putting the username below the avatar gives a long
+                        // name the full sheet width — never crowds the rating.
                         VStack(alignment: .leading, spacing: 12) {
-                            // Author and rating
-                            HStack(alignment: .top, spacing: 12) {
-                                let authorProfile = store.cachedProfile(for: review.authorID)
-                                AvatarView(emoji: authorProfile?.avatarEmoji, size: 44)
+                            let authorProfile = store.cachedProfile(for: review.authorID)
 
-                                VStack(alignment: .leading, spacing: 4) {
-                                    HStack(spacing: 6) {
-                                        Text(review.author)
-                                            .font(.title2.bold())
-                                            .foregroundStyle(.primary)
-                                        if !isOwnReview && store.isFriend(review.authorID) {
-                                            Text("Friend")
-                                                .font(.caption.bold())
-                                                .foregroundStyle(.teal)
-                                                .padding(.horizontal, 6)
-                                                .padding(.vertical, 2)
-                                                .background(Color.teal.opacity(0.18), in: Capsule())
-                                        }
-                                    }
-
-                                    Text(review.showTitle)
-                                        .font(.headline)
-                                        .foregroundStyle(.secondary)
-                                }
-
-                                Spacer()
-
+                            // Row 1 — avatar pinned left, rating pinned right.
+                            HStack(alignment: .top) {
+                                AvatarView(emoji: authorProfile?.avatarEmoji, size: 56)
+                                Spacer(minLength: 12)
                                 NebRatingView(rating: review.nebRating)
+                                    .fixedSize()
                             }
-                            
-                            // Timestamp
+
+                            // Row 2 — author name, full width, left-aligned.
+                            Text(review.author)
+                                .font(.title2.bold())
+                                .foregroundStyle(.primary)
+                                .lineLimit(2)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            // Row 3 — friend badge (own line).
+                            if !isOwnReview && store.isFriend(review.authorID) {
+                                Text("Friend")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.teal)
+                                    .lineLimit(1)
+                                    .fixedSize(horizontal: true, vertical: false)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(Color.teal.opacity(0.18), in: Capsule())
+                            }
+
+                            // Row 4 — show title.
+                            Text(review.showTitle)
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(3)
+                                .multilineTextAlignment(.leading)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                            // Row 5 — timestamp.
                             Text(review.timestamp.formatted(date: .complete, time: .shortened))
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)

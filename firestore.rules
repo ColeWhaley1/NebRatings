@@ -1,0 +1,67 @@
+// NebRatings — Firestore security rules (reference / merge-in)
+//
+// This file documents the rule changes needed for the emoji-reactions
+// feature. If your project already has a `firestore.rules` deployed via
+// the Firebase Console, MERGE the `/review/{reviewId}` block below into
+// your existing ruleset rather than replacing the entire file.
+//
+// Deploy options:
+//   1. Firebase Console → Firestore → Rules → paste & publish.
+//   2. `firebase deploy --only firestore:rules` (if you've initialized the
+//      Firebase CLI in this project — `firebase init firestore`).
+//
+// What changed and why:
+//   Reactions are stored as a map field `reactions: { <reactorUID>: <emoji> }`
+//   on each review document. Reacting to someone else's review is therefore
+//   a *write* to a document the reactor doesn't own. The default
+//   "author-only update" rule blocks this — you'll see optimistic UI
+//   updates that revert immediately, and an ⚠️ setReaction log in Xcode.
+//
+//   The rule below lets any signed-in user modify ONLY their own key
+//   inside the reactions map. They can't touch other reactors' emojis,
+//   the review body, the rating, or any other field.
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /review/{reviewId} {
+      // Everyone signed in can read reviews.
+      allow read: if request.auth != null;
+
+      // Author creates their own review with their UID in `userId`.
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+
+      // Update rule has two paths:
+      //   1) Author: full update (edit comment, rating, etc.).
+      //   2) Anyone else: may only touch their own reaction key.
+      //
+      // We use `.get('reactions', {})` instead of `.reactions` because the
+      // field may not yet exist on older reviews. Reading a missing field
+      // directly returns null and `null.diff(...)` errors → Firestore treats
+      // the rule as false and silently denies. The `.get(field, default)`
+      // form returns an empty map when the field is missing so `diff()` works.
+      allow update: if request.auth != null && (
+        // (1) Author full update — unchanged from the existing behavior.
+        resource.data.userId == request.auth.uid
+
+        // (2) Non-author reacting: the only field allowed to change is
+        // `reactions`, and within that map, only the reactor's own UID
+        // key may be added/changed/removed. This prevents tampering with
+        // other users' reactions, the review body, or anything else.
+        || (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["reactions"])
+          && request.resource.data.get("reactions", {}).diff(resource.data.get("reactions", {})).affectedKeys().hasOnly([request.auth.uid])
+        )
+      );
+
+      // Only the author can delete.
+      allow delete: if request.auth != null
+                    && resource.data.userId == request.auth.uid;
+    }
+
+    // … your other collections (profiles, friendships, etc.) stay unchanged …
+  }
+}

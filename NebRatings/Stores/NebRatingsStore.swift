@@ -8,6 +8,7 @@
 import FirebaseAuth
 import FirebaseCore
 import Foundation
+import SwiftUI
 
 @MainActor
 @Observable
@@ -799,29 +800,36 @@ final class NebRatingsStore {
         
         do {
             let results = try await reviewService.queryReviews(query)
-            
-            if let showID = showID {
+
+            if showID != nil {
                 // When querying for a specific show, merge results to preserve optimistic updates
                 // Use a dictionary to efficiently merge and update reviews
                 var reviewsDict: [UUID: Review] = [:]
-                
+
                 // First, add all existing reviews (preserves local optimistic updates)
                 for review in reviews {
                     reviewsDict[review.id] = review
                 }
-                
-                // Then, update/add reviews from Firestore (Firestore data takes precedence for existing reviews)
+
+                // Then, update/add reviews from Firestore. Re-overlay the
+                // current user's locally-tracked reaction so a stale read can't
+                // drop a reaction they just set this session.
                 for result in results {
-                    reviewsDict[result.id] = result
+                    var entry = result
+                    applyMyReactionOverride(to: &entry)
+                    reviewsDict[result.id] = entry
                 }
-                
+
                 // Convert back to array, sorted by timestamp (newest first)
                 let sortedReviews = Array(reviewsDict.values).sorted { $0.timestamp > $1.timestamp }
                 reviews = sortedReviews
             } else {
                 // When querying the feed (no showID), replace reviews with filtered results only
                 // This ensures the UI shows only the filtered reviews
-                let sortedReviews = results.sorted { $0.timestamp > $1.timestamp }
+                var sortedReviews = results.sorted { $0.timestamp > $1.timestamp }
+                for i in sortedReviews.indices {
+                    applyMyReactionOverride(to: &sortedReviews[i])
+                }
                 reviews = sortedReviews
             }
 
@@ -837,8 +845,9 @@ final class NebRatingsStore {
             let profile = try await profileService.fetchCurrentUser()
             currentUser = profile
             await loadUserReviews(for: profile.id)
-            // Compute the critic aggregate once for legacy profiles; no-op afterwards.
+            // Compute the persisted aggregates once for legacy profiles; no-op afterwards.
             await backfillCriticAggregateIfNeeded()
+            await backfillGenreCountsIfNeeded()
         } catch {
             // Keep currentUser as nil if profile can't be loaded
             currentUser = nil
@@ -1087,7 +1096,88 @@ final class NebRatingsStore {
             username: user.username,
             avatarEmoji: user.avatarEmoji,
             criticDeltaSum: sum,
-            criticDeltaCount: count
+            criticDeltaCount: count,
+            genreCounts: user.genreCounts // preserve the genre tally
+        )
+    }
+
+    // MARK: - Top genre aggregate
+    //
+    // Same persisted-aggregate strategy as critic harshness: rather than fetch
+    // every reviewed show's genres on each profile view, we keep a running
+    // per-genre review tally on the profile doc and maintain it incrementally.
+    // Counting is per-review (mirrors the critic aggregate), so backfill and the
+    // incremental adjusts stay consistent.
+
+    /// Full recomputation from scratch — only used for the one-time backfill of
+    /// profiles that predate this feature. Returns genre name → review count.
+    private func computeGenreCounts(reviews: [Review]) async -> [String: Int] {
+        var uniqueShows: [Int: Show.Category] = [:]
+        for review in reviews {
+            uniqueShows[review.showID] = review.showCategory
+        }
+        guard !uniqueShows.isEmpty else { return [:] }
+
+        // Fetch each unique show once (cache makes repeat lookups cheap).
+        var genresByShow: [Int: [String]] = [:]
+        for (id, category) in uniqueShows {
+            if let show = await fetchShowDetails(id: id, category: category) {
+                genresByShow[id] = show.genres
+            }
+        }
+
+        var counts: [String: Int] = [:]
+        for review in reviews {
+            for genre in genresByShow[review.showID] ?? [] {
+                counts[genre, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    /// One-time compute+store for profiles that have never had the tally calculated.
+    /// No-op once `genreCounts` exists, so this never runs on a normal profile view.
+    private func backfillGenreCountsIfNeeded() async {
+        guard let user = currentUser, user.needsGenreBackfill,
+              let me = authService.getCurrentUserID() else { return }
+
+        let counts = await computeGenreCounts(reviews: userReviews)
+        try? await profileService.setGenreCounts(userID: me, counts: counts)
+        applyLocalGenreCounts(counts)
+    }
+
+    /// Incrementally adjust the stored genre tally for a single review change.
+    /// `delta` is +1 when adding a review, −1 when deleting one. Each of the
+    /// show's genres is bumped by `delta`.
+    private func adjustGenreCounts(showID: Int, showCategory: Show.Category, delta: Int) async {
+        guard let me = authService.getCurrentUserID() else { return }
+        guard let show = await fetchShowDetails(id: showID, category: showCategory),
+              !show.genres.isEmpty else { return }
+
+        var deltas: [String: Int] = [:]
+        for genre in show.genres {
+            deltas[genre, default: 0] += delta
+        }
+
+        try? await profileService.incrementGenreCounts(userID: me, deltas: deltas)
+
+        var merged = currentUser?.genreCounts ?? [:]
+        for (genre, d) in deltas {
+            merged[genre, default: 0] += d
+        }
+        applyLocalGenreCounts(merged)
+    }
+
+    /// Mirror the tally locally so `topGenre` updates immediately without a reload.
+    private func applyLocalGenreCounts(_ counts: [String: Int]) {
+        guard let user = currentUser else { return }
+        currentUser = UserProfile(
+            id: user.id,
+            username: user.username,
+            avatarEmoji: user.avatarEmoji,
+            criticDeltaSum: user.criticDeltaSum,
+            criticDeltaCount: user.criticDeltaCount,
+            genreCounts: counts
         )
     }
 
@@ -1298,9 +1388,10 @@ final class NebRatingsStore {
                 await queryReviews(showID: show.id)
                 // Auto-remove from lists with that setting (single-owner lists only)
                 await performAutoRemoveFromLists(showID: showID, showCategory: show.category)
-                // Incrementally update the persisted critic-harshness aggregate (new review)
+                // Incrementally update the persisted aggregates (new review)
                 if author == currentUser?.username {
                     await adjustCriticAggregate(showID: showID, showCategory: show.category, oldRating: nil, newRating: rating)
+                    await adjustGenreCounts(showID: showID, showCategory: show.category, delta: 1)
                 }
                 // Maybe show in-app review prompt after positive engagement
                 await MainActor.run {
@@ -1432,6 +1523,82 @@ final class NebRatingsStore {
         }
     }
     
+    /// The current user's own reaction per review, tracked locally so it
+    /// survives Firestore re-reads. Keyed by reviewID; the wrapped value is the
+    /// emoji, or `nil` when the user explicitly cleared their reaction. Every
+    /// `queryReviews` re-overlays this onto fetched results, so a stale or
+    /// eventually-consistent read can never drop a reaction the user just set.
+    private var myReactionOverrides: [UUID: String?] = [:]
+
+    /// Overlay the current user's locally-tracked reaction (if any) onto a
+    /// freshly fetched review, so a stale server read can't drop a reaction the
+    /// user just set/cleared this session.
+    private func applyMyReactionOverride(to review: inout Review) {
+        guard let myID = authService.getCurrentUserID(),
+              let override = myReactionOverrides[review.id] else { return }
+        if let emoji = override {
+            review.reactions[myID] = emoji
+        } else {
+            review.reactions.removeValue(forKey: myID)
+        }
+    }
+
+    /// Sets or clears the current user's reaction on a review. Pass `emoji: nil`
+    /// to remove the reaction.
+    ///
+    /// The reaction is recorded in `myReactionOverrides` (durable local state)
+    /// and applied immediately, then persisted to Firestore in the background.
+    /// We deliberately do NOT revert on a failed write: the reaction stays put
+    /// in the UI regardless of the write outcome, so it never "appears then
+    /// vanishes." A failed write simply means it won't survive an app reload —
+    /// see `firestore.rules` for the rule that lets non-author reactions persist.
+    func setReaction(emoji: String?, on review: Review) async {
+        guard let myID = authService.getCurrentUserID() else { return }
+
+        // Record my reaction in the durable local override map, then apply it
+        // for immediate optimistic UI. The override is the source of truth for
+        // *my* reaction until the app reloads, so a stale server read can't
+        // drop it out from under me.
+        //
+        // The local apply is wrapped in an explicit `withAnimation` transaction
+        // — NOT a scoped `.animation(value:)` on the bar — because this is the
+        // only mechanism that reliably drives the reaction pill insert/remove
+        // transitions in EVERY container the bar lives in. A scoped animation
+        // animated removals inside a plain `LazyVStack` (the Reviews tab) but
+        // was dropped by `List` rows (the show-detail carousel) and never fired
+        // for insertions arriving via the emoji keyboard. An explicit
+        // transaction propagates into List row content and wraps both the
+        // keyboard-driven add and the tap-driven remove, so the pop-in and
+        // shrink-out play consistently everywhere.
+        myReactionOverrides[review.id] = emoji
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
+            applyReactionLocally(reviewID: review.id, userID: myID, emoji: emoji)
+        }
+
+        do {
+            try await reviewService.setReaction(reviewID: review.id, userID: myID, emoji: emoji)
+        } catch {
+            print("⚠️ setReaction failed to persist (kept locally): \(error)")
+        }
+    }
+
+    /// Mutate the reactions map on every local copy of the review (both
+    /// `reviews` and `userReviews`). Passing `emoji: nil` removes the key.
+    private func applyReactionLocally(reviewID: UUID, userID: String, emoji: String?) {
+        func mutate(_ array: inout [Review]) {
+            guard let idx = array.firstIndex(where: { $0.id == reviewID }) else { return }
+            var updated = array[idx]
+            if let emoji {
+                updated.reactions[userID] = emoji
+            } else {
+                updated.reactions.removeValue(forKey: userID)
+            }
+            array[idx] = updated
+        }
+        mutate(&reviews)
+        mutate(&userReviews)
+    }
+
     func deleteReview(_ review: Review) {
         // Remove from local state immediately for optimistic UI
         reviews = reviews.filter { $0.id != review.id }
@@ -1450,9 +1617,10 @@ final class NebRatingsStore {
                 try await reviewService.delete(review: review)
                 // Refresh reviews to ensure consistency with Firestore
                 await queryReviews(showID: review.showID)
-                // Incrementally update the persisted critic-harshness aggregate (removal)
+                // Incrementally update the persisted aggregates (removal)
                 if isOwnReview {
                     await adjustCriticAggregate(showID: review.showID, showCategory: review.showCategory, oldRating: review.nebRating, newRating: nil)
+                    await adjustGenreCounts(showID: review.showID, showCategory: review.showCategory, delta: -1)
                 }
             } catch {
                 // Handle error - restore optimistic update

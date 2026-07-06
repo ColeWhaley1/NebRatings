@@ -23,6 +23,11 @@ protocol ProfileService {
     func deleteProfile(userID: String) async throws
     func incrementCriticAggregate(userID: String, sumDelta: Double, countDelta: Int) async throws
     func setCriticAggregate(userID: String, sum: Double, count: Int) async throws
+    /// Adjusts the per-genre review tally by the given deltas (e.g. +1 per genre on a
+    /// new review, −1 on delete). Only touches the named genre keys.
+    func incrementGenreCounts(userID: String, deltas: [String: Int]) async throws
+    /// Replaces the whole genre tally — used for the one-time backfill.
+    func setGenreCounts(userID: String, counts: [String: Int]) async throws
 }
 
 struct FirebaseProfileService: ProfileService {
@@ -94,7 +99,8 @@ struct FirebaseProfileService: ProfileService {
             username: username,
             avatarEmoji: data["avatarEmoji"] as? String,
             criticDeltaSum: data["criticDeltaSum"] as? Double,
-            criticDeltaCount: data["criticDeltaCount"] as? Int
+            criticDeltaCount: data["criticDeltaCount"] as? Int,
+            genreCounts: parseGenreCounts(data["genreCounts"])
         )
     }
 
@@ -111,7 +117,8 @@ struct FirebaseProfileService: ProfileService {
             username: username,
             avatarEmoji: data["avatarEmoji"] as? String,
             criticDeltaSum: data["criticDeltaSum"] as? Double,
-            criticDeltaCount: data["criticDeltaCount"] as? Int
+            criticDeltaCount: data["criticDeltaCount"] as? Int,
+            genreCounts: parseGenreCounts(data["genreCounts"])
         )
     }
 
@@ -132,7 +139,8 @@ struct FirebaseProfileService: ProfileService {
                     username: username,
                     avatarEmoji: data["avatarEmoji"] as? String,
                     criticDeltaSum: data["criticDeltaSum"] as? Double,
-                    criticDeltaCount: data["criticDeltaCount"] as? Int
+                    criticDeltaCount: data["criticDeltaCount"] as? Int,
+                    genreCounts: parseGenreCounts(data["genreCounts"])
                 ))
             }
         }
@@ -151,6 +159,42 @@ struct FirebaseProfileService: ProfileService {
             "criticDeltaSum": sum,
             "criticDeltaCount": count
         ], merge: true)
+    }
+
+    func incrementGenreCounts(userID: String, deltas: [String: Int]) async throws {
+        // Build per-key increments. FieldPath (not dotted-string) keys so genre
+        // names containing "." or other special characters can't corrupt the path —
+        // TMDB names like "Sci-Fi & Fantasy" / "War & Politics" stay intact.
+        var data: [AnyHashable: Any] = [:]
+        for (genre, delta) in deltas where delta != 0 {
+            data[FieldPath(["genreCounts", genre])] = FieldValue.increment(Int64(delta))
+        }
+        guard !data.isEmpty else { return }
+        try await db.collection("profile").document(userID).updateData(data)
+    }
+
+    func setGenreCounts(userID: String, counts: [String: Int]) async throws {
+        // Replace the whole map (merge:true only merges at the top level, so the
+        // genreCounts field is overwritten wholesale). Writing even an empty map
+        // marks the tally as "computed" so the one-time backfill never re-runs.
+        try await db.collection("profile").document(userID).setData([
+            "genreCounts": counts
+        ], merge: true)
+    }
+
+    /// Firestore returns map values as `NSNumber`-backed `Any`; normalize to `[String: Int]`.
+    /// Returns nil when the field is absent so callers can detect "needs backfill".
+    private func parseGenreCounts(_ raw: Any?) -> [String: Int]? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        var result: [String: Int] = [:]
+        for (key, value) in dict {
+            if let intValue = value as? Int {
+                result[key] = intValue
+            } else if let number = value as? NSNumber {
+                result[key] = number.intValue
+            }
+        }
+        return result
     }
 
     func fetchReviews(for userID: String) async throws -> [Review] {

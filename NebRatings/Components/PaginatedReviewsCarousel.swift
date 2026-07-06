@@ -214,6 +214,26 @@ struct ReviewPagerChevrons: View {
     }
 }
 
+// MARK: - Count badge
+
+/// Small "N reviews" pill shown in review-list headers. Pluralizes the
+/// label and uses `.secondary` foreground over a soft tint, so it reads
+/// clearly without competing with the title.
+struct ReviewCountBadge: View {
+    let count: Int
+
+    var body: some View {
+        Text("\(count) \(count == 1 ? "review" : "reviews")")
+            .font(.caption.bold())
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(0.15), in: Capsule())
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+}
+
 // MARK: - Sort picker
 
 /// Standard "Sort" menu for paginated review lists. The bound enum's
@@ -249,7 +269,10 @@ struct ReviewSortPicker<Option>: View
 /// `pageCount(for:pageSize:)` to decide whether to render chevrons.
 enum ReviewPagination {
     /// Per-card layout height used to compute the carousel's outer frame.
-    static let cardHeight: CGFloat = 220
+    /// Bumped from 220 → 260 when emoji reactions were added — `ReviewCard`
+    /// reads from this same constant so the carousel and the cards stay
+    /// perfectly in sync.
+    static let cardHeight: CGFloat = 260
 
     static func chunkReviews(_ reviews: [Review], pageSize: Int) -> [[Review]] {
         guard pageSize > 0 else { return reviews.isEmpty ? [] : [reviews] }

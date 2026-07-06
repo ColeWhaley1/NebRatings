@@ -16,19 +16,35 @@ struct ShowDetailReviewsView: View {
     @Binding var reviewToEdit: Review?
     @Binding var expandedReview: Review?
     let averageRatingForFilteredSeason: Double?
-    
+
+    /// Sort *order* only — captured on page load and refreshed when the
+    /// set of reviews changes. We deliberately don't cache the full `Review`
+    /// structs here: reactions are stored *inside* each `Review`, and a
+    /// cached value-type array would freeze them. Instead `body` resolves
+    /// each id against the live store on every render — order stays put
+    /// (no shuffling on reaction-count change), but reaction pills update
+    /// in real time.
+    @State private var sortedReviewIDs: [UUID] = []
+
     var body: some View {
-        let allReviews = prioritizedReviews(reviews())
+        let liveByID: [UUID: Review] = Dictionary(
+            uniqueKeysWithValues: reviews().map { ($0.id, $0) }
+        )
+        let allReviews = sortedReviewIDs.compactMap { liveByID[$0] }
         let pageCount = ReviewPagination.pageCount(for: allReviews.count, pageSize: 5)
 
         VStack(alignment: .leading, spacing: 4) {
             Spacer()
                 .frame(height: 4)
 
-            HStack {
+            HStack(spacing: 8) {
                 Text("Neb Reviews")
                     .font(.title3.bold())
                     .foregroundStyle(.primary)
+
+                if !allReviews.isEmpty {
+                    ReviewCountBadge(count: allReviews.count)
+                }
 
                 Spacer()
 
@@ -61,6 +77,20 @@ struct ShowDetailReviewsView: View {
         }
         .sheet(item: $expandedReview) { review in
             ExpandedReviewView(review: review)
+        }
+        .task {
+            // Initial sort when the view appears.
+            sortedReviewIDs = prioritizedReviews(reviews()).map(\.id)
+        }
+        .onChange(of: reviews().map(\.id)) { _, _ in
+            // Re-sort only when the *set* of reviews changes (add/delete).
+            // Reaction-count changes don't change the IDs, so they don't
+            // trigger this — reviews stay put while you're reading them.
+            sortedReviewIDs = prioritizedReviews(reviews()).map(\.id)
+        }
+        .onChange(of: filterSeason) { _, _ in
+            // Season filter changes the visible set — re-sort.
+            sortedReviewIDs = prioritizedReviews(reviews()).map(\.id)
         }
     }
 
@@ -110,6 +140,10 @@ struct ShowDetailReviewsView: View {
             isFriend: store.isFriend(review.authorID),
             onTap: {
                 expandedReview = review
+            },
+            currentUserID: store.currentUser?.id,
+            onReact: { emoji in
+                Task { await store.setReaction(emoji: emoji, on: review) }
             }
         )
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -139,12 +173,16 @@ struct ShowDetailReviewsView: View {
         }
     }
 
-    /// Orders reviews: your own first, then friends', then everyone else — each tier by recency.
+    /// Orders reviews: your own first, then friends', then everyone else.
+    /// Within each tier: most-reacted first, then most-recent first.
     private func prioritizedReviews(_ reviews: [Review]) -> [Review] {
         reviews.sorted { lhs, rhs in
             let lr = priorityRank(lhs)
             let rr = priorityRank(rhs)
             if lr != rr { return lr < rr }
+            let lc = lhs.totalReactionCount
+            let rc = rhs.totalReactionCount
+            if lc != rc { return lc > rc }
             return lhs.timestamp > rhs.timestamp
         }
     }

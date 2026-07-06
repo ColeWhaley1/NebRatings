@@ -20,6 +20,11 @@ struct UserProfileView: View {
     @State private var reviews: [Review] = []
     @State private var isLoadingReviews = true
     @State private var currentReviewPage: Int = 0
+    /// Drives navigation when a top-3 pick is tapped. We can't use
+    /// `NavigationLink` inside TopThreePicks (multiple side-by-side links
+    /// in a List row trigger a SwiftUI tap-bleed bug), so the closure sets
+    /// this binding and `.navigationDestination(item:)` performs the push.
+    @State private var pickDestination: Show?
 
     private let reviewsPerPage = 5
 
@@ -43,13 +48,22 @@ struct UserProfileView: View {
                     sampleSize: profile?.criticSampleSize ?? 0,
                     isLoading: profile == nil
                 )
-                TopThreePicks(reviews: reviews)
+                TopGenreView(
+                    genre: profile?.topGenre,
+                    isLoading: profile == nil
+                )
+                TopThreePicks(reviews: reviews) { show in
+                    pickDestination = show
+                }
                 reviewsList
             }
             .padding(16)
         }
         .navigationTitle(profile?.username ?? "Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $pickDestination) { show in
+            ShowDetailView(show: show)
+        }
         .task { await load() }
         .refreshable { await load() }
     }
@@ -128,6 +142,9 @@ struct UserProfileView: View {
                 Text("Reviews")
                     .font(.subheadline.bold())
                     .foregroundStyle(.secondary)
+                if !isLoadingReviews && !allReviews.isEmpty {
+                    ReviewCountBadge(count: allReviews.count)
+                }
                 Spacer()
                 if !isLoadingReviews {
                     ReviewPagerChevrons(
@@ -136,9 +153,6 @@ struct UserProfileView: View {
                         size: 28,
                         font: .subheadline
                     )
-                    Text("\(allReviews.count)")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
                 }
             }
 
@@ -168,7 +182,11 @@ struct UserProfileView: View {
                                 isOwnReview: store.currentUser?.id == userID,
                                 authorAvatarEmoji: profile?.avatarEmoji,
                                 isFriend: store.currentUser?.id != userID && store.isFriend(userID),
-                                useLighterBackground: true
+                                useLighterBackground: true,
+                                currentUserID: store.currentUser?.id,
+                                onReact: { emoji in
+                                    Task { await store.setReaction(emoji: emoji, on: review) }
+                                }
                             )
                         }
                         .buttonStyle(.plain)

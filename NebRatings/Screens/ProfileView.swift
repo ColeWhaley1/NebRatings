@@ -77,8 +77,18 @@ struct ProfileView: View {
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
 
-            TopThreePicks(reviews: store.userReviews)
-                .environment(store)
+            TopGenreView(
+                genre: store.currentUser?.topGenre,
+                isLoading: store.currentUser == nil
+            )
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+
+            TopThreePicks(reviews: store.userReviews) { show in
+                navigationPath.append(show)
+            }
+            .environment(store)
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
@@ -269,7 +279,11 @@ struct ProfileView: View {
                                        showTitle: show.title,
                                        showCategory: show.category,
                                        isOwnReview: true,
-                                       authorAvatarEmoji: store.currentUser?.avatarEmoji)
+                                       authorAvatarEmoji: store.currentUser?.avatarEmoji,
+                                       currentUserID: store.currentUser?.id,
+                                       onReact: { emoji in
+                                           Task { await store.setReaction(emoji: emoji, on: review) }
+                                       })
                         }
                         .buttonStyle(.plain)
                     }
@@ -278,7 +292,14 @@ struct ProfileView: View {
                 .listRowInsets(EdgeInsets())
             }
         } header: {
-            Text("Your Reviews")
+            HStack(spacing: 8) {
+                Text("Your Reviews")
+                if !store.userReviews.isEmpty {
+                    ReviewCountBadge(count: store.userReviews.count)
+                        .textCase(nil) // Section headers force uppercase; the badge is its own thing.
+                }
+                Spacer()
+            }
         }
         .sheet(item: $reviewToEdit) { review in
             EditReviewView(review: review)
