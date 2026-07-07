@@ -29,6 +29,12 @@ final class NebRatingsStore {
     /// Cache of other users' profiles keyed by userID — used to render author avatars on reviews.
     var profileCache: [String: UserProfile] = [:]
 
+    /// The root tab currently selected. Lives in the store (not ContentView
+    /// @State) so deep views can route — e.g. tapping your *own* username on
+    /// a review switches to the Profile tab instead of pushing a duplicate
+    /// profile screen onto the current stack.
+    var selectedTab: AppTab = .discover
+
     private let catalogService: CatalogService
     private let reviewService: ReviewService
     private let profileService: ProfileService
@@ -36,7 +42,8 @@ final class NebRatingsStore {
     private let contactService: ContactService
     let authService: AuthService
     private let friendshipService: FriendshipService
-    
+    private let activityService: ActivityService
+
     // Cache for searched shows to avoid re-fetching
     var showCache: [Int: Show] = [:]
     
@@ -57,7 +64,8 @@ final class NebRatingsStore {
          listService: ListService = FirebaseListService(),
          authService: AuthService = FirebaseAuthService(),
          contactService: ContactService = FirebaseContactService(),
-         friendshipService: FriendshipService = FirebaseFriendshipService())
+         friendshipService: FriendshipService = FirebaseFriendshipService(),
+         activityService: ActivityService = FirebaseActivityService())
     {
         self.catalogService = catalogService
         self.reviewService = reviewService
@@ -66,6 +74,7 @@ final class NebRatingsStore {
         self.authService = authService
         self.contactService = contactService
         self.friendshipService = friendshipService
+        self.activityService = activityService
 
         // Set up auth state listener first - it will fire immediately with current state
         // This ensures we properly restore authentication from Firebase's persisted tokens
@@ -234,7 +243,10 @@ final class NebRatingsStore {
         do {
             try await listService.createList(newList, for: userID)
             showLists.append(newList)
-            
+            // No-op today (new lists start private), but future-proof: if
+            // creation defaults ever change, the event records correctly.
+            recordListActivity(kind: .createdList, list: newList)
+
             // Sort: default list first, then by creation date (newest first)
             showLists.sort { list1, list2 in
                 if list1.isDefault, !list2.isDefault {
@@ -268,6 +280,8 @@ final class NebRatingsStore {
         do {
             try await listService.deleteList(list, for: userID)
             showLists.removeAll { $0.id == list.id }
+            // Its feed events must go with it (best effort).
+            Task { try? await activityService.removeListEvents(listID: list.id) }
         } catch {
             // Error deleting list
         }
@@ -337,6 +351,42 @@ final class NebRatingsStore {
         }
     }
     
+    /// Updates who can see a list. Owner-only.
+    func updateListVisibility(listID: String, visibility: ListVisibility) async {
+        guard let userID = authService.getCurrentUserID() else {
+            return
+        }
+
+        guard let listIndex = showLists.firstIndex(where: { $0.id == listID }) else {
+            return
+        }
+
+        var updatedList = showLists[listIndex]
+
+        // Only the owner decides who can see the list.
+        guard updatedList.ownerID == userID else {
+            return
+        }
+
+        updatedList.visibility = visibility
+        showLists[listIndex] = updatedList
+
+        do {
+            try await listService.updateList(updatedList, for: userID)
+            if visibility == .privateList {
+                // Going private: the list's feed history must disappear.
+                Task { try? await activityService.removeListEvents(listID: updatedList.id) }
+            } else {
+                // Now visible: (re)announce it. Idempotent doc id, and the
+                // timestamp is the list's createdAt, so it lands in the feed
+                // where the list's age says it should.
+                recordListActivity(kind: .createdList, list: updatedList)
+            }
+        } catch {
+            await loadUserLists()
+        }
+    }
+
     // New method that accepts Show object (includes category). seasons: nil = entire show; [1,2] = specific seasons (series only).
     func addShowToList(_ show: Show, listID: String, seasons: [Int]? = nil) async {
         guard let userID = authService.getCurrentUserID() else {
@@ -364,17 +414,25 @@ final class NebRatingsStore {
         
         let reference = ShowReference(id: show.id, category: show.category, seasons: effectiveSeasons)
         
+        let isNewAddition: Bool
         if let existingIndex = updatedList.showReferences.firstIndex(where: { $0.id == show.id && $0.category == show.category }) {
             // Show already in list - update seasons (merge or replace)
             updatedList.showReferences[existingIndex] = reference
+            isNewAddition = false
         } else {
             updatedList.showReferences.append(reference)
+            isNewAddition = true
         }
         showLists[listIndex] = updatedList
-        
+
         // Update in Firebase
         do {
             try await listService.updateList(updatedList, for: userID)
+            // Feed event only for genuinely new additions — season tweaks
+            // and re-saves of existing entries don't re-announce.
+            if isNewAddition {
+                recordListActivity(kind: .addedToList, list: updatedList, show: show)
+            }
         } catch {
             // Revert on error - reload lists from server
             await loadUserLists()
@@ -874,6 +932,33 @@ final class NebRatingsStore {
         await loadUserProfile()
     }
 
+    func updateBio(_ bio: String?) async throws {
+        guard let userID = authService.getCurrentUserID() else {
+            throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        try await profileService.updateBio(userID: userID, bio: bio)
+        await loadUserProfile()
+    }
+
+    /// Replaces the hand-picked favorite genres. Caps at 5 defensively —
+    /// the picker UI enforces the same limit.
+    func updateFavoriteGenres(_ genres: [String]) async throws {
+        guard let userID = authService.getCurrentUserID() else {
+            throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        try await profileService.updateFavoriteGenres(userID: userID, genres: Array(genres.prefix(5)))
+        await loadUserProfile()
+    }
+
+    /// Sets or clears the favorite movie/show slot on the profile.
+    func updateFavoriteTitle(_ title: FavoriteTitle?, field: FavoriteTitleField) async throws {
+        guard let userID = authService.getCurrentUserID() else {
+            throw NSError(domain: "NebRatingsStore", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
+        }
+        try await profileService.updateFavoriteTitle(userID: userID, field: field, title: title)
+        await loadUserProfile()
+    }
+
     func fetchReviews(for userID: String) async -> [Review] {
         do {
             return try await profileService.fetchReviews(for: userID)
@@ -995,6 +1080,92 @@ final class NebRatingsStore {
     var friendIDs: Set<String> {
         guard let me = authService.getCurrentUserID() else { return [] }
         return Set(friends.compactMap { $0.otherUserID(currentUserID: me) })
+    }
+
+    /// Accepted-friend count for any profile. nil = query failed (hide the stat).
+    func fetchFriendCount(for userID: String) async -> Int? {
+        try? await friendshipService.fetchFriendCount(for: userID)
+    }
+
+    /// Another user's lists that the current viewer is allowed to see.
+    /// Server queries are visibility-scoped; the client re-checks with
+    /// `ShowList.isVisible` as defense in depth.
+    func fetchVisibleLists(ownerID: String) async -> [ShowList] {
+        let viewerIsFriend = isFriend(ownerID)
+        let lists = (try? await listService.fetchVisibleLists(ownerID: ownerID, includeFriendsOnly: viewerIsFriend)) ?? []
+        let viewerID = authService.getCurrentUserID()
+        return lists.filter { $0.isVisible(to: viewerID, isFriendOfOwner: viewerIsFriend) }
+    }
+
+    // MARK: - Activity feed
+
+    /// Fire-and-forget activity write. Feed events are best-effort — a
+    /// failed write never blocks or fails the user action that produced it.
+    private func recordActivity(_ activity: Activity) {
+        Task { try? await activityService.record(activity) }
+    }
+
+    /// Records a list event — but only for lists other people can see.
+    /// Private lists leave no trace in the feed. Document IDs are derived
+    /// from the list/show, so re-saves are idempotent overwrites.
+    private func recordListActivity(kind: Activity.Kind, list: ShowList, show: Show? = nil) {
+        guard list.visibility != .privateList, let user = currentUser else { return }
+        let id: String
+        switch kind {
+        case .createdList:
+            id = "createdList_\(list.id)"
+        case .addedToList:
+            guard let show else { return }
+            id = "addedToList_\(list.id)_\(show.id)"
+        default:
+            return
+        }
+        recordActivity(Activity(
+            id: id,
+            userID: user.id,
+            username: user.username,
+            kind: kind,
+            timestamp: kind == .createdList ? list.createdAt : Date(),
+            showID: show?.id,
+            showTitle: show?.title,
+            showCategory: show?.category,
+            listID: list.id,
+            listName: list.name,
+            listVisibility: list.visibility
+        ))
+    }
+
+    /// Everything the Activity tab shows, newest first:
+    ///   • "rated" events derived from recent review documents
+    ///   • persisted list / review-update events, filtered by list
+    ///     visibility (friends-only events require friendship with the actor)
+    /// Friends-first ordering is applied by the view, not here.
+    func fetchActivityFeed(limit: Int = 100) async -> [Activity] {
+        let since = Calendar.current.date(byAdding: .day, value: -45, to: Date()) ?? Date()
+        async let reviewsFetch = reviewService.queryReviews(ReviewQuery(since: since, limit: 200))
+        async let docsFetch = activityService.fetchRecent(limit: limit)
+
+        let recentReviews = (try? await reviewsFetch) ?? []
+        let docs = (try? await docsFetch) ?? []
+
+        let ratedEvents = recentReviews
+            .filter { $0.authorID != nil }
+            .map(Activity.rated(from:))
+
+        let viewerID = authService.getCurrentUserID()
+        let visibleDocs = docs.filter { activity in
+            guard let visibility = activity.listVisibility else {
+                return true // non-list events (review updates)
+            }
+            switch visibility {
+            case .publicList: return true
+            case .friendsOnly: return activity.userID == viewerID || isFriend(activity.userID)
+            case .privateList: return false
+            }
+        }
+
+        return (ratedEvents + visibleDocs)
+            .sorted { $0.timestamp > $1.timestamp }
     }
 
     func isFriend(_ userID: String?) -> Bool {
@@ -1327,6 +1498,116 @@ final class NebRatingsStore {
         }
     }
     
+    /// YouTube trailers for a show, already priority-sorted by the service.
+    /// Returns [] on any failure — the trailers section simply hides.
+    func fetchTrailers(for show: Show) async -> [Trailer] {
+        (try? await catalogService.fetchTrailers(tmdbID: show.id, category: show.category)) ?? []
+    }
+
+    /// Search that RETURNS results instead of mutating the shared Discover
+    /// state (`shows` / `isSearchingShows`) — for embedded pickers like the
+    /// favorite-title chooser, which must not disturb the Discover tab.
+    func searchShowsDetached(query: String, category: Show.Category? = nil) async -> [Show] {
+        (try? await catalogService.searchShows(query: query, category: category)) ?? []
+    }
+
+    // MARK: - Discover sections
+
+    /// All Discover-section fetchers return [] on failure (section hides)
+    /// and warm `showCache` so detail pushes and `show(for:)` stay cheap.
+    private func cachingResult(_ shows: [Show]) -> [Show] {
+        for show in shows where showCache[show.id] == nil {
+            showCache[show.id] = show
+        }
+        return shows
+    }
+
+    func fetchDiscover(filter: DiscoverFilter) async -> [Show] {
+        cachingResult((try? await catalogService.fetchDiscover(filter: filter)) ?? [])
+    }
+
+    func fetchTrendingWeek(category: Show.Category? = nil) async -> [Show] {
+        cachingResult((try? await catalogService.fetchTrendingWeekShows(category: category)) ?? [])
+    }
+
+    /// Recommendations that return results without mutating the shared
+    /// `recommendations` state (which belongs to the show-detail screen).
+    func fetchRecommendationsDetached(tmdbID: Int, category: Show.Category) async -> [Show] {
+        cachingResult((try? await catalogService.fetchRecommendations(tmdbID: tmdbID, category: category)) ?? [])
+    }
+
+    // MARK: - Community rankings
+
+    struct RankedShow: Identifiable {
+        let show: Show
+        let averageRating: Double
+        let reviewCount: Int
+        var id: Int { show.id }
+    }
+
+    /// NebRatings-community rankings since a given date: shows ranked by
+    /// average neb rating and by review volume. One review fetch feeds both.
+    /// Season-specific reviews count toward their parent show.
+    func fetchCommunityRankings(since: Date, limit: Int = 10) async -> (highestRated: [RankedShow], mostReviewed: [RankedShow]) {
+        let recent = (try? await reviewService.queryReviews(ReviewQuery(since: since, limit: 500))) ?? []
+        guard !recent.isEmpty else { return ([], []) }
+
+        struct Aggregate {
+            var sum = 0.0
+            var count = 0
+            var title = ""
+            var category = Show.Category.movie
+        }
+        var aggregates: [Int: Aggregate] = [:]
+        for review in recent {
+            var aggregate = aggregates[review.showID] ?? Aggregate()
+            aggregate.sum += review.nebRating
+            aggregate.count += 1
+            aggregate.title = review.showTitle
+            aggregate.category = review.showCategory
+            aggregates[review.showID] = aggregate
+        }
+
+        let byRating = aggregates
+            .sorted { lhs, rhs in
+                let l = lhs.value.sum / Double(lhs.value.count)
+                let r = rhs.value.sum / Double(rhs.value.count)
+                if l != r { return l > r }
+                return lhs.value.count > rhs.value.count
+            }
+            .prefix(limit)
+        let byVolume = aggregates
+            .sorted { lhs, rhs in
+                if lhs.value.count != rhs.value.count { return lhs.value.count > rhs.value.count }
+                return (lhs.value.sum / Double(lhs.value.count)) > (rhs.value.sum / Double(rhs.value.count))
+            }
+            .prefix(limit)
+
+        // Resolve Shows (poster art etc.) for the union of both top lists —
+        // cache-backed, so repeat visits don't refetch.
+        var resolved: [Int: Show] = [:]
+        let neededIDs = Set(byRating.map(\.key)).union(byVolume.map(\.key))
+        for showID in neededIDs {
+            guard let aggregate = aggregates[showID] else { continue }
+            if let show = await fetchShowDetailsByTMDBID(tmdbID: showID, category: aggregate.category) {
+                resolved[showID] = show
+            }
+        }
+
+        func ranked<S: Sequence>(_ entries: S) -> [RankedShow] where S.Element == (key: Int, value: Aggregate) {
+            entries.compactMap { entry in
+                guard let show = resolved[entry.key] else { return nil }
+                return RankedShow(
+                    show: show,
+                    averageRating: entry.value.sum / Double(entry.value.count),
+                    reviewCount: entry.value.count
+                )
+            }
+        }
+
+        return (ranked(byRating), ranked(byVolume))
+    }
+
     func addReview(author: String, comment: String, rating: Double, to show: Show, season: Int? = nil) {
         // Use the show's ID directly - it's now the TMDB ID
         let showID = show.id
@@ -1446,6 +1727,22 @@ final class NebRatingsStore {
             // Maybe show in-app review prompt after positive engagement
             await MainActor.run {
                 AppStoreReviewHelper.maybeRequestInAppReview(userReviewCount: userReviews.count)
+            }
+            // Feed event: "updated their review". Idempotent id — repeated
+            // edits collapse to one (latest) event.
+            if let user = currentUser, review.author == user.username {
+                recordActivity(Activity(
+                    id: "updatedReview_\(review.id.uuidString)",
+                    userID: user.id,
+                    username: user.username,
+                    kind: .updatedReview,
+                    timestamp: Date(),
+                    showID: review.showID,
+                    showTitle: review.showTitle,
+                    showCategory: review.showCategory,
+                    rating: rating,
+                    season: season ?? review.season
+                ))
             }
         } catch {
             // Error updating review

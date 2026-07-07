@@ -12,6 +12,11 @@ protocol CatalogService {
     func fetchShowDetails(id: String, category: Show.Category) async throws -> Show?
     func fetchTrendingShows(category: Show.Category?) async throws -> [Show]
     func fetchRecommendations(tmdbID: Int, category: Show.Category) async throws -> [Show]
+    func fetchTrailers(tmdbID: Int, category: Show.Category) async throws -> [Trailer]
+    /// TMDB /discover with the given filter (one medium per call).
+    func fetchDiscover(filter: DiscoverFilter) async throws -> [Show]
+    /// Weekly trending window (the existing fetchTrendingShows is daily).
+    func fetchTrendingWeekShows(category: Show.Category?) async throws -> [Show]
 }
 
 struct TMDBService: CatalogService {
@@ -623,6 +628,167 @@ struct TMDBService: CatalogService {
         }
     }
     
+    // MARK: - Discover / curated lists
+
+    /// Generic "fetch a list of shows from a TMDB endpoint" helper — all the
+    /// curated-section endpoints share this decode/convert path.
+    private func fetchShowList(path: String, extraQueryItems: [URLQueryItem] = [], isMovie: Bool) async throws -> [Show] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        guard var urlComponents = URLComponents(string: "\(baseURL)/\(path)") else {
+            throw TMDBError.invalidURL
+        }
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey),
+            URLQueryItem(name: "include_adult", value: "false")
+        ] + extraQueryItems
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw TMDBError.invalidResponse
+        }
+
+        do {
+            if isMovie {
+                let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
+                return movieResponse.results.map { convertMovieToShow($0) }
+            } else {
+                let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
+                return tvResponse.results.map { convertTVToShow($0) }
+            }
+        } catch {
+            throw TMDBError.decodingError
+        }
+    }
+
+    func fetchDiscover(filter: DiscoverFilter) async throws -> [Show] {
+        let isMovie = filter.category == .movie
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "sort_by", value: filter.sortBy),
+            // Guard rail: unrated obscurities dominate vote_average sorts
+            // without a floor.
+            URLQueryItem(name: "vote_count.gte", value: String(filter.minVoteCount ?? 20))
+        ]
+        if isMovie {
+            // Family-safe guard: cap suggestions at PG-13 so discover rows
+            // don't surface titles with nudity/heavy gore/language. (TMDB's
+            // /discover/tv has no certification filter; TV relies on the
+            // include_adult=false base parameter.)
+            items.append(URLQueryItem(name: "certification_country", value: "US"))
+            items.append(URLQueryItem(name: "certification.lte", value: "PG-13"))
+        }
+        if !filter.genreIDs.isEmpty {
+            // TMDB: comma = AND, pipe = OR.
+            let separator = filter.genreMatch == .any ? "|" : ","
+            items.append(URLQueryItem(name: "with_genres", value: filter.genreIDs.map(String.init).joined(separator: separator)))
+        }
+        if let minVoteAverage = filter.minVoteAverage {
+            items.append(URLQueryItem(name: "vote_average.gte", value: String(minVoteAverage)))
+        }
+        if let maxVoteCount = filter.maxVoteCount {
+            items.append(URLQueryItem(name: "vote_count.lte", value: String(maxVoteCount)))
+        }
+        if let minRuntime = filter.minRuntime {
+            items.append(URLQueryItem(name: "with_runtime.gte", value: String(minRuntime)))
+        }
+        if let maxRuntime = filter.maxRuntime {
+            items.append(URLQueryItem(name: "with_runtime.lte", value: String(maxRuntime)))
+        }
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateField = isMovie ? "primary_release_date" : "first_air_date"
+        if let after = filter.releasedAfter {
+            items.append(URLQueryItem(name: "\(dateField).gte", value: dateFormatter.string(from: after)))
+        }
+        if let before = filter.releasedBefore {
+            items.append(URLQueryItem(name: "\(dateField).lte", value: dateFormatter.string(from: before)))
+        }
+
+        return try await fetchShowList(
+            path: isMovie ? "discover/movie" : "discover/tv",
+            extraQueryItems: items,
+            isMovie: isMovie
+        )
+    }
+
+    func fetchTrendingWeekShows(category: Show.Category?) async throws -> [Show] {
+        var shows: [Show] = []
+        if category == nil || category == .movie {
+            shows += (try? await fetchShowList(path: "trending/movie/week", isMovie: true)) ?? []
+        }
+        if category == nil || category == .series {
+            shows += (try? await fetchShowList(path: "trending/tv/week", isMovie: false)) ?? []
+        }
+        if category == nil {
+            shows.sort { $0.popularity > $1.popularity }
+        }
+        return shows
+    }
+
+    // MARK: - Trailers
+
+    /// Fetches YouTube trailers for a movie/show from TMDB's /videos endpoint.
+    /// Returns only YouTube-hosted Trailers and Teasers, sorted by priority:
+    /// official Trailer → any Trailer → Teaser. Non-video failures degrade to
+    /// an empty list at the call site (the section simply hides).
+    func fetchTrailers(tmdbID: Int, category: Show.Category) async throws -> [Trailer] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        let endpoint = category == .movie ? "movie" : "tv"
+        guard var urlComponents = URLComponents(string: "\(baseURL)/\(endpoint)/\(tmdbID)/videos") else {
+            throw TMDBError.invalidURL
+        }
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw TMDBError.invalidResponse
+        }
+
+        do {
+            let videosResponse = try JSONDecoder().decode(VideosResponse.self, from: data)
+            return videosResponse.results
+                .filter { $0.site == "YouTube" && ($0.type == "Trailer" || $0.type == "Teaser") }
+                .sorted { trailerPriority($0) < trailerPriority($1) }
+                // Some titles have a dozen+ videos; three is plenty, and the
+                // priority sort guarantees the official trailer leads.
+                .prefix(3)
+                .map { video in
+                    Trailer(
+                        id: video.id,
+                        youtubeKey: video.key,
+                        name: video.name,
+                        type: video.type,
+                        isOfficial: video.official ?? false
+                    )
+                }
+        } catch {
+            throw TMDBError.decodingError
+        }
+    }
+
+    /// Lower = shown first. Official Trailer → Trailer → Teaser.
+    private func trailerPriority(_ video: TMDBVideo) -> Int {
+        switch (video.type, video.official ?? false) {
+        case ("Trailer", true): return 0
+        case ("Trailer", false): return 1
+        default: return 2 // Teaser (official or not)
+        }
+    }
+
     private func extractYear(from dateString: String?) -> Int {
         guard let dateString = dateString, dateString.count >= 4 else {
             return Calendar.current.component(.year, from: Date())

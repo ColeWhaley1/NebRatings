@@ -27,11 +27,13 @@ struct ProfileView: View {
     @State private var currentReviewPage: Int = 0
     @State private var navigationPath = NavigationPath()
     @State private var isShowingAvatarPicker = false
+    @State private var isShowingEditProfile = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
             List {
                 profileSection
+                aboutSection
                 statsSection
                 reviewsSection
             }
@@ -61,6 +63,35 @@ struct ProfileView: View {
             .sheet(isPresented: $isShowingAvatarPicker) {
                 AvatarPickerView()
                     .environment(store)
+            }
+            .sheet(isPresented: $isShowingEditProfile) {
+                EditProfileView()
+                    .environment(store)
+            }
+        }
+    }
+
+    /// Bio, favorite genres, favorite titles, join date — plus the entry
+    /// point into the Edit Profile sheet.
+    private var aboutSection: some View {
+        Section("About") {
+            ProfileAboutSection(
+                profile: store.currentUser,
+                onOpenFavorite: { favorite in
+                    Task {
+                        if let show = await store.fetchShowDetailsByTMDBID(tmdbID: favorite.id, category: favorite.category) {
+                            navigationPath.append(show)
+                        }
+                    }
+                }
+            )
+            .listRowSeparator(.hidden)
+
+            Button {
+                isShowingEditProfile = true
+            } label: {
+                Label("Edit Profile", systemImage: "pencil.line")
+                    .foregroundStyle(.purple)
             }
         }
     }
@@ -92,7 +123,27 @@ struct ProfileView: View {
             .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
+
+            ProfileStatsSection(
+                reviews: store.userReviews,
+                publicListCount: ownPublicListCount,
+                friendCount: store.friends.count,
+                onOpenHighlight: { review in
+                    if let show = store.show(for: review) {
+                        navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
+                    }
+                }
+            )
+            .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 8, trailing: 8))
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
         }
+    }
+
+    /// Lists I own that are public — the count shown in my stats.
+    private var ownPublicListCount: Int {
+        guard let myID = store.currentUser?.id else { return 0 }
+        return store.showLists.filter { $0.ownerID == myID && $0.visibility == .publicList }.count
     }
 
     private var profileSection: some View {

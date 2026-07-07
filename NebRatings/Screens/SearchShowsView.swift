@@ -15,52 +15,50 @@ struct SearchShowsView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Category filter picker
-                categoryFilterView
-                
-                // Results list
-                Group {
-                    if store.isSearchingShows {
-                        ProgressView("Searching...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if store.shows.isEmpty && !searchText.isEmpty {
-                        ContentUnavailableView("No results", systemImage: "magnifyingglass", description: Text("Try a different search term."))
-                    } else if store.shows.isEmpty {
-                        ContentUnavailableView("Search for shows", systemImage: "magnifyingglass", description: Text("Enter a movie or TV show name to search."))
-                    } else {
-                        List(store.shows) { show in
-                            NavigationLink(value: show) {
-                                ShowRow(show: show)
+            Group {
+                if searchText.isEmpty {
+                    // Browse mode: moods + curated sections.
+                    DiscoverHomeView()
+                } else {
+                    // Search mode: category filter + results.
+                    VStack(spacing: 0) {
+                        categoryFilterView
+
+                        Group {
+                            if store.isSearchingShows {
+                                ProgressView("Searching...")
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else if store.shows.isEmpty {
+                                ContentUnavailableView("No results", systemImage: "magnifyingglass", description: Text("Try a different search term."))
+                            } else {
+                                List(store.shows) { show in
+                                    NavigationLink(value: show) {
+                                        ShowRow(show: show)
+                                    }
+                                }
+                                .listStyle(.insetGrouped)
                             }
                         }
-                        .listStyle(.insetGrouped)
                     }
                 }
             }
             .navigationTitle("Discover")
             .searchable(text: $searchText, prompt: "Search movies or TV shows")
             .onChange(of: searchText) { oldValue, newValue in
-                if newValue.isEmpty {
-                    loadTrending()
-                } else {
+                if !newValue.isEmpty {
                     performSearch()
                 }
             }
             .onChange(of: selectedCategory) { oldValue, newValue in
-                if searchText.isEmpty {
-                    loadTrending()
-                } else {
+                if !searchText.isEmpty {
                     performSearch()
-                }
-            }
-            .onAppear {
-                if searchText.isEmpty {
-                    loadTrending()
                 }
             }
             .navigationDestination(for: Show.self) { show in
                 ShowDetailView(show: show)
+            }
+            .navigationDestination(for: Mood.self) { mood in
+                MoodResultsView(mood: mood)
             }
         }
     }
@@ -80,22 +78,13 @@ struct SearchShowsView: View {
     private func performSearch() {
         // Cancel previous search task
         searchTask?.cancel()
-        
+
         // Debounce search - wait 0.5 seconds after user stops typing
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            
+
             guard !Task.isCancelled else { return }
             await store.searchShows(query: searchText, category: selectedCategory)
-        }
-    }
-    
-    private func loadTrending() {
-        // Cancel any pending search task
-        searchTask?.cancel()
-        
-        Task {
-            await store.loadTrendingShows(category: selectedCategory)
         }
     }
 }

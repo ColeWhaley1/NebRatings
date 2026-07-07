@@ -16,6 +16,10 @@ struct ReviewQuery {
     var minimumRating: Double?
     var showID: Int?  // Use TMDB ID directly
     var authorID: String?
+    /// Only reviews written at/after this instant (community rankings).
+    /// Don't combine with `minimumRating` — Firestore forbids range filters
+    /// on two different fields in one query.
+    var since: Date?
     var limit: Int = 50
 }
 
@@ -55,6 +59,12 @@ struct FirebaseReviewService: ReviewService {
         // Filter by minimum rating if provided (do this in Firestore)
         if let minRating = query.minimumRating {
             firestoreQuery = firestoreQuery.whereField("nebRating", isGreaterThanOrEqualTo: minRating)
+        }
+
+        // Time window (community rankings). Mutually exclusive with the
+        // nebRating range filter above — see ReviewQuery.since.
+        if let since = query.since, query.minimumRating == nil {
+            firestoreQuery = firestoreQuery.whereField("timestamp", isGreaterThanOrEqualTo: Timestamp(date: since))
         }
         
         // Filter by category in Firestore if provided and we're NOT filtering by minimumRating

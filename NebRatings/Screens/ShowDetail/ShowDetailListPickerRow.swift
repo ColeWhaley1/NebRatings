@@ -127,13 +127,16 @@ struct ShowDetailListPickerRow: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(.tertiarySystemFill))
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
                 .animation(.none, value: seriesDropdownLabel)
             }
+            // Render the menu label as a *plain*-styled button. The default
+            // menu button drew the system's rectangular tap highlight over the
+            // rounded chip, so a selected season's chip flashed with square
+            // corners whenever it was tapped or re-highlighted.
+            .menuStyle(.button)
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 16)

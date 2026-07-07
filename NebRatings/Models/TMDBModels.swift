@@ -87,6 +87,51 @@ struct TMDBGenre: Codable {
     let name: String
 }
 
+// MARK: - Video (Trailer) Models
+
+struct VideosResponse: Codable {
+    let id: Int?
+    let results: [TMDBVideo]
+}
+
+struct TMDBVideo: Codable {
+    let id: String
+    let key: String
+    let name: String
+    let site: String
+    let type: String
+    let official: Bool?
+    let publishedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, name, site, type, official
+        case publishedAt = "published_at"
+    }
+}
+
+/// App-facing trailer, already filtered to YouTube and sorted by priority
+/// (official trailer → trailer → teaser). `youtubeKey` is the YouTube video id.
+struct Trailer: Identifiable, Hashable {
+    let id: String
+    let youtubeKey: String
+    let name: String
+    /// TMDB type: "Trailer" or "Teaser".
+    let type: String
+    let isOfficial: Bool
+
+    /// YouTube's own thumbnail CDN — no extra TMDB call needed.
+    var thumbnailURL: String {
+        "https://img.youtube.com/vi/\(youtubeKey)/hqdefault.jpg"
+    }
+
+    /// Fallback: open in the YouTube app / Safari. In-app playback builds an
+    /// iframe wrapper from `youtubeKey` (see YouTubeEmbedView) — loading an
+    /// embed URL directly fails YouTube's origin check (error 153).
+    var watchURL: URL? {
+        URL(string: "https://www.youtube.com/watch?v=\(youtubeKey)")
+    }
+}
+
 // MARK: - Watch Provider Models
 struct WatchProvider: Codable {
     let displayPriority: Int

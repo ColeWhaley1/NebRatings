@@ -13,6 +13,9 @@ protocol FriendshipService {
     /// Used for declining incoming requests, canceling outgoing requests, and removing existing friends.
     func deleteRelationship(currentUserID: String, otherUserID: String) async throws
     func fetchRelationships(for userID: String) async throws -> [Friendship]
+    /// Count of *accepted* friendships for any user — shown on profiles.
+    /// Server-side aggregation; no documents are downloaded.
+    func fetchFriendCount(for userID: String) async throws -> Int
 }
 
 struct FirebaseFriendshipService: FriendshipService {
@@ -49,6 +52,14 @@ struct FirebaseFriendshipService: FriendshipService {
     func deleteRelationship(currentUserID: String, otherUserID: String) async throws {
         let docID = Friendship.documentID(currentUserID, otherUserID)
         try await db.collection(collection).document(docID).delete()
+    }
+
+    func fetchFriendCount(for userID: String) async throws -> Int {
+        let query = db.collection(collection)
+            .whereField("members", arrayContains: userID)
+            .whereField("status", isEqualTo: Friendship.Status.accepted.rawValue)
+        let aggregation = try await query.count.getAggregation(source: .server)
+        return aggregation.count.intValue
     }
 
     func fetchRelationships(for userID: String) async throws -> [Friendship] {

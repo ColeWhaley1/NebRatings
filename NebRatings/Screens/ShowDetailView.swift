@@ -28,6 +28,12 @@ struct ShowDetailView: View {
     @State private var draftListSelections: [String: [Int]?] = [:]
     @State private var selectedSeason: Int? = nil
     @State private var filterSeason: Int? = nil
+    /// YouTube trailers from TMDB. Empty = section hidden entirely.
+    @State private var trailers: [Trailer] = []
+    /// Native share sheet payload (text + poster when available).
+    @State private var shareItems: [Any] = []
+    @State private var isSharePresented = false
+    @State private var isPreparingShare = false
     
     private var displayShow: Show {
         detailedShow ?? show
@@ -127,6 +133,11 @@ struct ShowDetailView: View {
                         )
                         Divider()
                             .background(Color(.separator))
+                        if !trailers.isEmpty {
+                            ShowDetailTrailersView(trailers: trailers)
+                            Divider()
+                                .background(Color(.separator))
+                        }
                         ShowDetailReviewsView(
                             displayShow: displayShow,
                             reviews: reviews,
@@ -174,11 +185,33 @@ struct ShowDetailView: View {
         .navigationTitle(displayShow.title)
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if isPreparingShare {
+                    ProgressView()
+                } else {
+                    Button {
+                        Task { await prepareShare() }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(.primary)
+                    }
+                    .accessibilityLabel("Share \(displayShow.title)")
+                }
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ActivityShareSheet(items: shareItems)
+        }
         .task {
             if let season = initialSeasonFilter {
                 filterSeason = season
                 selectedSeason = season
             }
+            // Fire concurrently with the detail/review loads below — the id and
+            // category never change between `show` and `detailedShow`, so this
+            // doesn't need to wait for details.
+            async let trailersFetch = store.fetchTrailers(for: show)
             await loadShowDetails()
             await loadShowReviews()
             await loadRecommendations()
@@ -187,6 +220,7 @@ struct ShowDetailView: View {
             if selectedListID == nil {
                 selectedListID = store.showLists.first(where: { $0.isDefault })?.id ?? store.showLists.first?.id
             }
+            trailers = await trailersFetch
         }
         .onChange(of: store.showLists) { _, _ in
             if selectedListID != nil && !store.showLists.contains(where: { $0.id == selectedListID }) {
@@ -263,6 +297,20 @@ struct ShowDetailView: View {
         }
     }
     
+    /// Builds the share payload: the show, my rating + review for the current
+    /// season filter when I have one, and the poster when fetchable.
+    private func prepareShare() async {
+        isPreparingShare = true
+        let myReview = userReviewForSeason(displayShow.category == .series ? filterSeason : nil)
+        var items: [Any] = [ShareContentBuilder.text(for: displayShow, myReview: myReview)]
+        if let poster = await ShareContentBuilder.posterImage(from: displayShow.posterURL) {
+            items.append(poster)
+        }
+        shareItems = items
+        isPreparingShare = false
+        isSharePresented = true
+    }
+
     private func addReview() {
         guard !newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         let authorName = store.currentUser?.username ?? "Anonymous"
