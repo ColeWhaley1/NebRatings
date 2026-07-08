@@ -51,11 +51,13 @@ enum ShareContentBuilder {
         return lines.joined(separator: "\n")
     }
 
-    /// Future Universal Links hook. Returns nil until a web domain exists;
-    /// when it does, produce e.g. https://nebratings.app/show/{category}/{id}
-    /// here and every share automatically carries a deep link.
+    /// Public share link for a title. Emitted only once Universal Linking is
+    /// live (`DeepLinkConfig.isUniversalLinkingEnabled`) — until then this
+    /// stays nil so shares don't carry a dead https link. Flipping that flag
+    /// (after the domain + AASA are up) automatically enriches every share.
     static func shareURL(showID: Int, category: Show.Category) -> URL? {
-        nil
+        guard DeepLinkConfig.isUniversalLinkingEnabled else { return nil }
+        return DeepLinkParser.url(for: .show(id: showID, category: category), universal: true)
     }
 
     /// Fetches the poster as a UIImage for richer shares. Returns nil on any

@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["ND29VRWA3P.com.colewhaley.NebRatings"],
+        "components": [
+          { "/": "/show/*", "comment": "Movie/TV detail pages" },
+          { "/": "/user/*", "comment": "User profile pages" }
+        ]
+      }
+    ]
+  }
+}
