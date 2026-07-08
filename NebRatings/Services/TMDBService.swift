@@ -17,6 +17,10 @@ protocol CatalogService {
     func fetchDiscover(filter: DiscoverFilter) async throws -> [Show]
     /// Weekly trending window (the existing fetchTrendingShows is daily).
     func fetchTrendingWeekShows(category: Show.Category?) async throws -> [Show]
+    /// Resolves keyword names to TMDB keyword IDs (top match each).
+    func fetchKeywordIDs(names: [String]) async throws -> [Int]
+    /// Top-billed cast with headshot URLs (fetched on demand).
+    func fetchCast(tmdbID: Int, category: Show.Category) async throws -> [CastMember]
 }
 
 struct TMDBService: CatalogService {
@@ -369,12 +373,14 @@ struct TMDBService: CatalogService {
             posterURL: posterURL(from: movie.posterPath),
             backdropURL: backdropURL(from: movie.backdropPath),
             popularity: movie.popularity ?? 0.0,
-            genres: [], // Search results don't include genre names, only IDs
+            // List endpoints return only genre_ids — resolve to names via
+            // the static catalog so recommendation scoring has genres.
+            genres: GenreCatalog.names(forGenreIDs: movie.genreIds),
             rating: movie.voteAverage,
             watchProviders: [] // Search results don't include watch providers
         )
     }
-    
+
     private func convertTVToShow(_ tv: TMDBTV) -> Show {
         let year = extractYear(from: tv.firstAirDate)
         return Show(
@@ -388,7 +394,7 @@ struct TMDBService: CatalogService {
             posterURL: posterURL(from: tv.posterPath),
             backdropURL: backdropURL(from: tv.backdropPath),
             popularity: tv.popularity ?? 0.0,
-            genres: [], // Search results don't include genre names, only IDs
+            genres: GenreCatalog.names(forGenreIDs: tv.genreIds),
             rating: tv.voteAverage,
             watchProviders: [] // Search results don't include watch providers
         )
@@ -674,18 +680,25 @@ struct TMDBService: CatalogService {
             // without a floor.
             URLQueryItem(name: "vote_count.gte", value: String(filter.minVoteCount ?? 20))
         ]
-        if isMovie {
-            // Family-safe guard: cap suggestions at PG-13 so discover rows
-            // don't surface titles with nudity/heavy gore/language. (TMDB's
-            // /discover/tv has no certification filter; TV relies on the
-            // include_adult=false base parameter.)
+        if isMovie, let certificationCap = filter.movieCertificationCap {
+            // Content-preference ceiling (e.g. PG for Family Friendly,
+            // PG-13 for General Audience). TMDB only supports certification
+            // filters on movies; TV filtering happens through genre
+            // exclusions below plus the include_adult base parameter.
             items.append(URLQueryItem(name: "certification_country", value: "US"))
-            items.append(URLQueryItem(name: "certification.lte", value: "PG-13"))
+            items.append(URLQueryItem(name: "certification.lte", value: certificationCap))
+        }
+        if !filter.excludedGenreIDs.isEmpty {
+            items.append(URLQueryItem(name: "without_genres", value: filter.excludedGenreIDs.map(String.init).joined(separator: ",")))
         }
         if !filter.genreIDs.isEmpty {
             // TMDB: comma = AND, pipe = OR.
             let separator = filter.genreMatch == .any ? "|" : ","
             items.append(URLQueryItem(name: "with_genres", value: filter.genreIDs.map(String.init).joined(separator: separator)))
+        }
+        if !filter.keywordIDs.isEmpty {
+            // Keywords OR-ed: any matching keyword qualifies.
+            items.append(URLQueryItem(name: "with_keywords", value: filter.keywordIDs.map(String.init).joined(separator: "|")))
         }
         if let minVoteAverage = filter.minVoteAverage {
             items.append(URLQueryItem(name: "vote_average.gte", value: String(minVoteAverage)))
@@ -717,6 +730,32 @@ struct TMDBService: CatalogService {
         )
     }
 
+    /// Resolves human-readable keyword names ("christmas", "beach") to TMDB
+    /// keyword IDs via /search/keyword, taking the top match per name.
+    /// Names with no match are silently skipped.
+    func fetchKeywordIDs(names: [String]) async throws -> [Int] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        var ids: [Int] = []
+        for name in names {
+            guard var urlComponents = URLComponents(string: "\(baseURL)/search/keyword") else { continue }
+            urlComponents.queryItems = [
+                URLQueryItem(name: "api_key", value: apiKey),
+                URLQueryItem(name: "query", value: name)
+            ]
+            guard let url = urlComponents.url,
+                  let (data, response) = try? await URLSession.shared.data(from: url),
+                  let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode),
+                  let decoded = try? JSONDecoder().decode(KeywordSearchResponse.self, from: data),
+                  let first = decoded.results.first
+            else { continue }
+            ids.append(first.id)
+        }
+        return ids
+    }
+
     func fetchTrendingWeekShows(category: Show.Category?) async throws -> [Show] {
         var shows: [Show] = []
         if category == nil || category == .movie {
@@ -729,6 +768,51 @@ struct TMDBService: CatalogService {
             shows.sort { $0.popularity > $1.popularity }
         }
         return shows
+    }
+
+    // MARK: - Cast
+
+    /// /movie/{id}/credits or /tv/{id}/credits — top-billed cast, billing
+    /// order preserved, capped at 24 so ensemble shows don't dump hundreds
+    /// of one-line roles.
+    func fetchCast(tmdbID: Int, category: Show.Category) async throws -> [CastMember] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        let endpoint = category == .movie ? "movie" : "tv"
+        guard var urlComponents = URLComponents(string: "\(baseURL)/\(endpoint)/\(tmdbID)/credits") else {
+            throw TMDBError.invalidURL
+        }
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw TMDBError.invalidResponse
+        }
+
+        do {
+            let credits = try JSONDecoder().decode(CreditsResponse.self, from: data)
+            return credits.cast
+                .sorted { ($0.order ?? Int.max) < ($1.order ?? Int.max) }
+                .prefix(24)
+                .map { member in
+                    CastMember(
+                        id: member.id,
+                        name: member.name,
+                        character: member.character,
+                        profileURL: thumbnailURL(from: member.profilePath),
+                        order: member.order ?? Int.max
+                    )
+                }
+        } catch {
+            throw TMDBError.decodingError
+        }
     }
 
     // MARK: - Trailers

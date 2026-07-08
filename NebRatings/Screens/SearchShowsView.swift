@@ -60,6 +60,9 @@ struct SearchShowsView: View {
             .navigationDestination(for: Mood.self) { mood in
                 MoodResultsView(mood: mood)
             }
+            .navigationDestination(for: SeasonalCollection.self) { collection in
+                SeasonalResultsView(collection: collection)
+            }
         }
     }
     

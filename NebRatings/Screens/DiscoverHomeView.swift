@@ -18,6 +18,8 @@ struct DiscoverHomeView: View {
     @State private var trendingWeek: [Show] = []
     @State private var recentlyReleased: [Show] = []
     @State private var hiddenGems: [Show] = []
+    /// Collections active for today's date (Christmas, Halloween Horror, …).
+    @State private var seasonalCollections: [SeasonalCollection] = []
     @State private var awardWinners: [Show] = []
     @State private var favoriteGenreShows: [Show] = []
     @State private var becauseYouRatedTitle: String?
@@ -33,6 +35,10 @@ struct DiscoverHomeView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 moodsSection
+
+                if !seasonalCollections.isEmpty {
+                    seasonalSection
+                }
 
                 if isLoading {
                     HStack {
@@ -91,6 +97,13 @@ struct DiscoverHomeView: View {
         .refreshable {
             hasLoaded = false
             await loadAll()
+        }
+        .onChange(of: store.contentPreference) { _, _ in
+            // Changing the maturity level in Settings invalidates every
+            // curated row — rebuild the page against the new preference.
+            hasLoaded = false
+            isLoading = true
+            Task { await loadAll() }
         }
     }
 
@@ -176,6 +189,71 @@ struct DiscoverHomeView: View {
         .onAppear { moodsAppeared = true }
     }
 
+    // MARK: - Seasonal collections
+
+    /// Gradient pairs cycled by position — collections rotate through the
+    /// year, so stable-but-varied is all we need.
+    private static let seasonalGradients: [[Color]] = [
+        [.red, .orange], [.indigo, .purple], [.teal, .blue],
+        [.pink, .red], [.orange, .yellow], [.green, .mint]
+    ]
+
+    private var seasonalSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Right Now")
+                    .font(.title3.bold())
+                Text("Collections for this time of year")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 12) {
+                    ForEach(Array(seasonalCollections.enumerated()), id: \.element.id) { index, collection in
+                        NavigationLink(value: collection) {
+                            seasonalCard(collection, colors: Self.seasonalGradients[index % Self.seasonalGradients.count])
+                        }
+                        .buttonStyle(PressableButtonStyle())
+                        .simultaneousGesture(TapGesture().onEnded {
+                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        })
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func seasonalCard(_ collection: SeasonalCollection, colors: [Color]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(collection.emoji)
+                .font(.system(size: 34))
+            Spacer(minLength: 0)
+            Text(collection.title)
+                .font(.subheadline.bold())
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.leading)
+                .lineLimit(2)
+                .shadow(color: .black.opacity(0.3), radius: 1, y: 1)
+            if let subtitle = collection.subtitle {
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+            }
+        }
+        .padding(14)
+        .frame(width: 160, height: 120, alignment: .topLeading)
+        .background(
+            LinearGradient(colors: colors.map { $0.opacity(0.85) }, startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: 16)
+        )
+        .shadow(color: colors[0].opacity(0.35), radius: 6, y: 4)
+    }
+
     private func rankedRow(title: String,
                            subtitle: String,
                            ranked: [NebRatingsStore.RankedShow],
@@ -207,6 +285,7 @@ struct DiscoverHomeView: View {
         let sixtyDaysAgo = calendar.date(byAdding: .day, value: -60, to: now) ?? now
 
         // TMDB rows — all independent, fetched concurrently.
+        async let seasonalFetch = store.fetchActiveSeasonalCollections()
         async let trendingFetch = store.fetchTrendingWeek()
         async let recentMoviesFetch = store.fetchDiscover(filter: DiscoverFilter(
             category: .movie, minVoteCount: 50, releasedAfter: sixtyDaysAgo, releasedBefore: now
@@ -231,6 +310,7 @@ struct DiscoverHomeView: View {
         async let monthRankings = store.fetchCommunityRankings(since: monthStart)
         async let yearRankings = store.fetchCommunityRankings(since: yearStart)
 
+        seasonalCollections = await seasonalFetch
         trendingWeek = await trendingFetch
         recentlyReleased = interleave(await recentMoviesFetch, await recentTVFetch)
         hiddenGems = interleave(await gemMoviesFetch, await gemTVFetch)
@@ -348,6 +428,45 @@ struct MoodResultsView: View {
                 }
             }
             results = merged
+            isLoading = false
+        }
+    }
+}
+
+// MARK: - Seasonal results
+
+/// Pushed when a seasonal collection card is tapped.
+struct SeasonalResultsView: View {
+    let collection: SeasonalCollection
+
+    @Environment(NebRatingsStore.self) private var store
+    @State private var results: [Show] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Gathering picks…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if results.isEmpty {
+                ContentUnavailableView(
+                    "Nothing found",
+                    systemImage: "sparkles",
+                    description: Text("This collection came up empty — check back soon.")
+                )
+            } else {
+                List(results) { show in
+                    NavigationLink(value: show) {
+                        ShowRow(show: show)
+                    }
+                }
+                .listStyle(.insetGrouped)
+            }
+        }
+        .navigationTitle("\(collection.emoji) \(collection.title)")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            results = await store.fetchShows(for: collection)
             isLoading = false
         }
     }

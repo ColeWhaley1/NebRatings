@@ -31,6 +31,9 @@ struct UserProfile: Identifiable, Hashable {
     let favoriteShow: FavoriteTitle?
     /// Set once at profile creation. nil on profiles that predate the field.
     let joinDate: Date?
+    /// Maturity level for recommendations. nil = never chosen (the app
+    /// prompts once and treats it as .generalAudience meanwhile).
+    let contentPreference: ContentPreference?
 
     // Persisted critic-harshness aggregate. Stored as a running sum/count so the
     // average (sum / count) can be maintained incrementally on each review write,
@@ -56,7 +59,8 @@ struct UserProfile: Identifiable, Hashable {
          favoriteGenres: [String]? = nil,
          favoriteMovie: FavoriteTitle? = nil,
          favoriteShow: FavoriteTitle? = nil,
-         joinDate: Date? = nil) {
+         joinDate: Date? = nil,
+         contentPreference: ContentPreference? = nil) {
         self.id = id
         self.username = username
         self.avatarEmoji = avatarEmoji
@@ -68,6 +72,7 @@ struct UserProfile: Identifiable, Hashable {
         self.favoriteMovie = favoriteMovie
         self.favoriteShow = favoriteShow
         self.joinDate = joinDate
+        self.contentPreference = contentPreference
     }
 
     /// Average (nebRating − TMDB) across comparable reviews; nil if none.

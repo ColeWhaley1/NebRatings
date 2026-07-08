@@ -31,6 +31,8 @@ struct UserProfileView: View {
     /// in a List row trigger a SwiftUI tap-bleed bug), so the closure sets
     /// this binding and `.navigationDestination(item:)` performs the push.
     @State private var pickDestination: Show?
+    /// Pushes the taste-comparison screen.
+    @State private var showingCompatibility = false
 
     private let reviewsPerPage = 5
 
@@ -92,6 +94,9 @@ struct UserProfileView: View {
         .navigationDestination(item: $pickDestination) { show in
             ShowDetailView(show: show)
         }
+        .navigationDestination(isPresented: $showingCompatibility) {
+            CompatibilityView(otherUserID: userID, otherProfile: profile)
+        }
         .task { await load() }
         .refreshable { await load() }
     }
@@ -102,6 +107,18 @@ struct UserProfileView: View {
             Text(profile?.username ?? "Loading…")
                 .font(.title2.bold())
             friendActionRow
+
+            // Taste comparison — only meaningful against someone else.
+            if store.currentUser?.id != userID {
+                Button {
+                    showingCompatibility = true
+                } label: {
+                    Label("Compare Tastes", systemImage: "heart.text.square")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .tint(.purple)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)

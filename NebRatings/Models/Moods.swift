@@ -22,6 +22,14 @@ struct DiscoverFilter: Hashable {
     var category: Show.Category
     var genreIDs: [Int] = []
     var genreMatch: GenreMatch = .all
+    /// TMDB keyword IDs, OR-ed (pipe-joined). Resolved from names via
+    /// /search/keyword — see TMDBService.fetchKeywordIDs.
+    var keywordIDs: [Int] = []
+    /// US certification ceiling for movie queries (certification.lte).
+    /// Set by the store from the user's ContentPreference; nil = no cap.
+    var movieCertificationCap: String? = nil
+    /// Genres excluded via without_genres (content-preference driven).
+    var excludedGenreIDs: [Int] = []
     var minVoteAverage: Double? = nil
     var minVoteCount: Int? = nil
     var maxVoteCount: Int? = nil

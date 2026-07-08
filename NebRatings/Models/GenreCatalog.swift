@@ -70,4 +70,49 @@ enum GenreCatalog {
         "Fantasy": 10765,         // Sci-Fi & Fantasy
         "War": 10768              // War & Politics
     ]
+
+    /// TMDB genre id → display name, movies + TV combined. Lets list-style
+    /// endpoints (search/discover/trending), which only return `genre_ids`,
+    /// still yield named genres on `Show` — the recommendation engines need
+    /// them without a per-title details fetch.
+    static let genreNamesByID: [Int: String] = [
+        28: "Action",
+        12: "Adventure",
+        16: "Animation",
+        35: "Comedy",
+        80: "Crime",
+        99: "Documentary",
+        18: "Drama",
+        10751: "Family",
+        14: "Fantasy",
+        36: "History",
+        27: "Horror",
+        10402: "Music",
+        9648: "Mystery",
+        10749: "Romance",
+        878: "Science Fiction",
+        10770: "TV Movie",
+        53: "Thriller",
+        10752: "War",
+        37: "Western",
+        // TV-only ids map onto the closest movie-style names so the two
+        // media count into the same buckets.
+        10759: "Action",          // Action & Adventure
+        10762: "Family",          // Kids
+        10763: "Documentary",     // News
+        10764: "Reality",
+        10765: "Science Fiction", // Sci-Fi & Fantasy
+        10766: "Drama",           // Soap
+        10767: "Comedy",          // Talk
+        10768: "War"              // War & Politics
+    ]
+
+    static func names(forGenreIDs ids: [Int]?) -> [String] {
+        guard let ids else { return [] }
+        var seen = Set<String>()
+        return ids.compactMap { id in
+            guard let name = genreNamesByID[id], seen.insert(name).inserted else { return nil }
+            return name
+        }
+    }
 }

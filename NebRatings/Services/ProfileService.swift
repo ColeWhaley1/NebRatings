@@ -19,6 +19,8 @@ protocol ProfileService {
     func updateFavoriteGenres(userID: String, genres: [String]) async throws
     /// Sets or clears (nil) the favorite movie/show. `field` is which slot.
     func updateFavoriteTitle(userID: String, field: FavoriteTitleField, title: FavoriteTitle?) async throws
+    /// Persists the recommendation maturity level.
+    func updateContentPreference(userID: String, preference: ContentPreference) async throws
     func fetchCurrentUser() async throws -> UserProfile
     func fetchProfile(userID: String) async throws -> UserProfile?
     func fetchProfiles(userIDs: [String]) async throws -> [UserProfile]
@@ -126,6 +128,12 @@ struct FirebaseProfileService: ProfileService {
         ], merge: true)
     }
 
+    func updateContentPreference(userID: String, preference: ContentPreference) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "contentPreference": preference.rawValue
+        ], merge: true)
+    }
+
     func fetchCurrentUser() async throws -> UserProfile {
         guard let userID = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "ProfileService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
@@ -183,7 +191,8 @@ struct FirebaseProfileService: ProfileService {
             favoriteGenres: data["favoriteGenres"] as? [String],
             favoriteMovie: parseFavoriteTitle(data["favoriteMovie"]),
             favoriteShow: parseFavoriteTitle(data["favoriteShow"]),
-            joinDate: (data["joinDate"] as? Timestamp)?.dateValue()
+            joinDate: (data["joinDate"] as? Timestamp)?.dateValue(),
+            contentPreference: (data["contentPreference"] as? String).flatMap { ContentPreference(rawValue: $0) }
         )
     }
 

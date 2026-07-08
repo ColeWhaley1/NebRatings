@@ -20,6 +20,10 @@ enum AppTab: Hashable {
 struct ContentView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @AppStorage("colorScheme") private var colorScheme: String = "dark"
+    /// One-time content-preference prompt (onboarding). Shown once per
+    /// launch at most, only while the profile has never chosen.
+    @State private var showingContentPreferencePrompt = false
+    @State private var hasOfferedContentPreferencePrompt = false
     
     private var selectedColorScheme: ColorScheme? {
         switch colorScheme {
@@ -72,6 +76,16 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(selectedColorScheme)
+        .onChange(of: store.needsContentPreferencePrompt) { _, needsPrompt in
+            if needsPrompt && !hasOfferedContentPreferencePrompt {
+                hasOfferedContentPreferencePrompt = true
+                showingContentPreferencePrompt = true
+            }
+        }
+        .sheet(isPresented: $showingContentPreferencePrompt) {
+            ContentPreferenceOnboardingSheet()
+                .environment(store)
+        }
     }
 }
 #Preview {

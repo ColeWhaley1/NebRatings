@@ -132,6 +132,46 @@ struct Trailer: Identifiable, Hashable {
     }
 }
 
+// MARK: - Credits (cast)
+
+struct CreditsResponse: Codable {
+    let cast: [TMDBCastMember]
+}
+
+struct TMDBCastMember: Codable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profilePath: String?
+    let order: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, character, order
+        case profilePath = "profile_path"
+    }
+}
+
+/// App-facing cast member with a resolved headshot URL. Fetched on demand
+/// (the cast screen), never with the detail page itself.
+struct CastMember: Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profileURL: String?
+    let order: Int
+}
+
+// MARK: - Keyword Search
+
+struct KeywordSearchResponse: Codable {
+    let results: [TMDBKeyword]
+}
+
+struct TMDBKeyword: Codable {
+    let id: Int
+    let name: String
+}
+
 // MARK: - Watch Provider Models
 struct WatchProvider: Codable {
     let displayPriority: Int

@@ -30,6 +30,8 @@ struct ShowDetailView: View {
     @State private var filterSeason: Int? = nil
     /// YouTube trailers from TMDB. Empty = section hidden entirely.
     @State private var trailers: [Trailer] = []
+    /// Pushes the on-demand cast screen (credits fetch happens there).
+    @State private var showingCast = false
     /// Native share sheet payload (text + poster when available).
     @State private var shareItems: [Any] = []
     @State private var isSharePresented = false
@@ -133,6 +135,28 @@ struct ShowDetailView: View {
                         )
                         Divider()
                             .background(Color(.separator))
+                        // Cast is on demand: this row pushes CastView, and the
+                        // credits request fires there — never with this page.
+                        Button {
+                            showingCast = true
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "person.2.fill")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.purple)
+                                Text("Cast & Crew")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(Color.primary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(Color.secondary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider()
+                            .background(Color(.separator))
                         if !trailers.isEmpty {
                             ShowDetailTrailersView(trailers: trailers)
                             Divider()
@@ -202,6 +226,9 @@ struct ShowDetailView: View {
         }
         .sheet(isPresented: $isSharePresented) {
             ActivityShareSheet(items: shareItems)
+        }
+        .navigationDestination(isPresented: $showingCast) {
+            CastView(show: displayShow)
         }
         .task {
             if let season = initialSeasonFilter {

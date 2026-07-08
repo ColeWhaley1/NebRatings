@@ -28,6 +28,7 @@ struct ProfileView: View {
     @State private var navigationPath = NavigationPath()
     @State private var isShowingAvatarPicker = false
     @State private var isShowingEditProfile = false
+    @State private var isShowingWrapped = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -68,6 +69,10 @@ struct ProfileView: View {
                 EditProfileView()
                     .environment(store)
             }
+            .fullScreenCover(isPresented: $isShowingWrapped) {
+                YearInReviewView(year: Calendar.current.component(.year, from: Date()))
+                    .environment(store)
+            }
         }
     }
 
@@ -92,6 +97,25 @@ struct ProfileView: View {
             } label: {
                 Label("Edit Profile", systemImage: "pencil.line")
                     .foregroundStyle(.purple)
+            }
+
+            // Year in Review — spotlighted in December, available all year.
+            Button {
+                isShowingWrapped = true
+            } label: {
+                HStack {
+                    Text("🎁")
+                    Text("Your \(String(Calendar.current.component(.year, from: Date()))) Wrapped")
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.purple)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.purple)
+                }
+                // Keep the whole row in the purple family — the default
+                // button tint painted parts of it blue.
+                .tint(.purple)
             }
         }
     }

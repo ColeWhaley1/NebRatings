@@ -115,6 +115,13 @@ service cloud.firestore {
                     && resource.data.userID == request.auth.uid;
     }
 
+    // Remote app configuration (seasonal collections curation, etc.).
+    // Read-only from the app; edited via the Firebase Console.
+    match /appConfig/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // … your other collections (profiles, friendships, etc.) stay unchanged …
   }
 }

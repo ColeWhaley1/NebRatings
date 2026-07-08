@@ -32,6 +32,28 @@ struct FriendsView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Friends")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    // Watch Together lives here rather than as a 6th root tab —
+                    // a 6th tab would push everything into iOS's "More" overflow.
+                    //
+                    // Pushed BY VALUE through the stack's path: this stack binds
+                    // a NavigationPath, and a closure-destination link isn't part
+                    // of that path — pushing a Show from inside Watch Together
+                    // then made SwiftUI reconcile the path and bounce back.
+                    Button {
+                        navigationPath.append(WatchTogetherRoute())
+                    } label: {
+                        Label("Watch Together", systemImage: "sparkles.tv")
+                            .labelStyle(.titleAndIcon)
+                            .font(.subheadline.weight(.medium))
+                    }
+                    .tint(.purple)
+                }
+            }
+            .navigationDestination(for: WatchTogetherRoute.self) { _ in
+                WatchTogetherView()
+            }
             .searchable(text: $searchText, prompt: "Search by username")
             .navigationDestination(for: UserProfileDestination.self) { dest in
                 UserProfileView(userID: dest.userID, initialProfile: dest.profile)
@@ -308,3 +330,6 @@ struct UserProfileDestination: Hashable {
     let userID: String
     let profile: UserProfile?
 }
+
+/// Path token for pushing the Watch Together screen by value.
+struct WatchTogetherRoute: Hashable {}
