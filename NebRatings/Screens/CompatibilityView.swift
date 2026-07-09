@@ -12,6 +12,10 @@ import SwiftUI
 struct CompatibilityView: View {
     let otherUserID: String
     let otherProfile: UserProfile?
+    /// Pre-computed report that skips the async Firestore load — used to
+    /// render this exact screen with sample data for marketing screenshots
+    /// (see MarketingSnapshotView). nil in every real code path.
+    var snapshot: (report: CompatibilityReport, myAvatarEmoji: String?)? = nil
 
     @Environment(NebRatingsStore.self) private var store
     @State private var report: CompatibilityReport?
@@ -103,7 +107,12 @@ struct CompatibilityView: View {
         .navigationTitle("Compare Tastes")
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            await load()
+            if let snapshot {
+                report = snapshot.report
+                isLoading = false
+            } else {
+                await load()
+            }
         }
     }
 
@@ -136,7 +145,7 @@ struct CompatibilityView: View {
             .frame(width: 180, height: 180)
 
             HStack(spacing: 10) {
-                AvatarView(emoji: store.currentUser?.avatarEmoji, size: 40)
+                AvatarView(emoji: snapshot?.myAvatarEmoji ?? store.currentUser?.avatarEmoji, size: 40)
                 Image(systemName: "heart.fill")
                     .foregroundStyle(.pink)
                     .font(.caption)

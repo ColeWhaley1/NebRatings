@@ -191,16 +191,12 @@ struct ExpandedReviewView: View {
         }
     }
 
-    /// Builds the share payload (text + poster image when fetchable) and
-    /// presents the system share sheet.
+    /// Builds the share payload via the shared ShareService (enticing copy +
+    /// nebratings.com link + poster) and presents the system share sheet.
     private func prepareShare(for review: Review) async {
         isPreparingShare = true
         let show = store.show(for: review)
-        var items: [Any] = [ShareContentBuilder.text(for: review, showYear: show?.year)]
-        if let poster = await ShareContentBuilder.posterImage(from: show?.posterURL) {
-            items.append(poster)
-        }
-        shareItems = items
+        shareItems = await ShareService.items(for: .review(review, show: show))
         isPreparingShare = false
         isSharePresented = true
     }

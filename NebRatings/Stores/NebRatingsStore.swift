@@ -20,6 +20,28 @@ final class NebRatingsStore {
     private(set) var isAuthenticated = false
     private(set) var recommendations: [Show] = []
     var showLists: [ShowList] = []
+
+    /// The whole Discover browse payload, owned by the store so it can be
+    /// warmed during the splash screen and is instant when the tab appears.
+    var discoverFeed = DiscoverFeed()
+    private var discoverLoadTask: Task<Void, Never>?
+
+    /// Everything the Discover browse view renders. Kept here (not in the
+    /// view) so loading can start at launch, before the view exists.
+    struct DiscoverFeed {
+        var seasonal: [SeasonalCollection] = []
+        var trendingWeek: [Show] = []
+        var recentlyReleased: [Show] = []
+        var hiddenGems: [Show] = []
+        var awardWinners: [Show] = []
+        var favoriteGenreShows: [Show] = []
+        var becauseYouRatedTitle: String?
+        var becauseYouRatedShows: [Show] = []
+        var highestRatedMonth: [RankedShow] = []
+        var mostReviewedMonth: [RankedShow] = []
+        var highestRatedYear: [RankedShow] = []
+        var isLoaded = false
+    }
     
     var isSearchingShows = false
     private(set) var isQueryingReviews = false
@@ -166,6 +188,11 @@ final class NebRatingsStore {
                         await self.loadUserProfile()
                         await self.loadUserLists()
                         await self.loadRelationships()
+                        // Warm Discover + the friends' reviews feed now (during
+                        // the splash) so the first tabs are instant. Fire-and-
+                        // forget — never blocks auth.
+                        Task { await self.preloadDiscover() }
+                        Task { await self.queryReviews() }
                     }
                 } else {
                     // User is not authenticated - this happens after sign out or if no session exists
@@ -189,8 +216,10 @@ final class NebRatingsStore {
         await loadUserProfile()
         await loadUserLists()
         await loadRelationships()
+        Task { await preloadDiscover() }
+        Task { await queryReviews() }
     }
-    
+
     // Method to clear the explicit sign out flag before initiating sign-in
     // This should be called before authService.signIn() to prevent the auth state listener
     // from forcing a sign out during the sign-in process
@@ -1097,6 +1126,16 @@ final class NebRatingsStore {
         try? await friendshipService.fetchFriendCount(for: userID)
     }
 
+    /// A single list by id, for deep links. Returns nil if the list doesn't
+    /// exist or the viewer isn't allowed to see it (Firestore rules enforce
+    /// visibility; we re-check locally as defense in depth).
+    func fetchList(id: String) async -> ShowList? {
+        guard let list = try? await listService.fetchList(id: id) else { return nil }
+        let viewerID = authService.getCurrentUserID()
+        let isFriend = isFriend(list.ownerID)
+        return list.isVisible(to: viewerID, isFriendOfOwner: isFriend) ? list : nil
+    }
+
     /// Another user's lists that the current viewer is allowed to see.
     /// Server queries are visibility-scoped; the client re-checks with
     /// `ShowList.isVisible` as defense in depth.
@@ -1271,15 +1310,9 @@ final class NebRatingsStore {
 
     /// Mirror the aggregate locally so the gauge updates immediately without a profile reload.
     private func applyLocalCriticAggregate(sum: Double, count: Int) {
-        guard let user = currentUser else { return }
-        currentUser = UserProfile(
-            id: user.id,
-            username: user.username,
-            avatarEmoji: user.avatarEmoji,
-            criticDeltaSum: sum,
-            criticDeltaCount: count,
-            genreCounts: user.genreCounts // preserve the genre tally
-        )
+        // Copy-with preserves bio / favorites / joinDate / contentPreference —
+        // rebuilding by hand here used to drop them and re-trigger onboarding.
+        currentUser = currentUser?.withCriticAggregate(sum: sum, count: count)
     }
 
     // MARK: - Top genre aggregate
@@ -1351,15 +1384,7 @@ final class NebRatingsStore {
 
     /// Mirror the tally locally so `topGenre` updates immediately without a reload.
     private func applyLocalGenreCounts(_ counts: [String: Int]) {
-        guard let user = currentUser else { return }
-        currentUser = UserProfile(
-            id: user.id,
-            username: user.username,
-            avatarEmoji: user.avatarEmoji,
-            criticDeltaSum: user.criticDeltaSum,
-            criticDeltaCount: user.criticDeltaCount,
-            genreCounts: counts
-        )
+        currentUser = currentUser?.withGenreCounts(counts)
     }
 
     private func loadUserReviews(for userID: String) async {
@@ -1502,6 +1527,8 @@ final class NebRatingsStore {
             for show in results {
                 showCache[show.id] = show
             }
+            // Warm recommendation posters so the row fills cleanly.
+            ImageCache.shared.prefetch(recommendations.map(\.posterURL))
         } catch {
             // Handle error - could show error state
             // Show empty results on error rather than crashing
@@ -1614,6 +1641,123 @@ final class NebRatingsStore {
                                       preference: ContentPreference? = nil) async -> [Show] {
         let results = (try? await catalogService.fetchRecommendations(tmdbID: tmdbID, category: category)) ?? []
         return cachingResult(preferenceScreened(results, preference: preference ?? contentPreference))
+    }
+
+    // MARK: - Discover feed (preloaded)
+
+    /// Loads the entire Discover payload once, coalescing concurrent callers
+    /// (splash preload + the view's own `.task`) onto a single fetch. Pass
+    /// `force` to rebuild after something invalidates it (pull-to-refresh,
+    /// content-preference change).
+    func preloadDiscover(force: Bool = false) async {
+        if force {
+            discoverLoadTask?.cancel()
+            discoverLoadTask = nil
+            discoverFeed.isLoaded = false
+        }
+        if discoverFeed.isLoaded { return }
+        if let task = discoverLoadTask {
+            await task.value
+            return
+        }
+        let task = Task { await loadDiscoverFeed() }
+        discoverLoadTask = task
+        await task.value
+        discoverLoadTask = nil
+    }
+
+    private func loadDiscoverFeed() async {
+        let now = Date()
+        let calendar = Calendar.current
+        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+        let yearStart = calendar.date(from: calendar.dateComponents([.year], from: now)) ?? now
+        let sixtyDaysAgo = calendar.date(byAdding: .day, value: -60, to: now) ?? now
+
+        // All independent — fetched concurrently.
+        async let seasonalFetch = fetchActiveSeasonalCollections()
+        async let trendingFetch = fetchTrendingWeek()
+        async let recentMoviesFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .movie, minVoteCount: 50, releasedAfter: sixtyDaysAgo, releasedBefore: now))
+        async let recentTVFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .series, minVoteCount: 20, releasedAfter: sixtyDaysAgo, releasedBefore: now))
+        async let gemMoviesFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .movie, minVoteAverage: 7.2, minVoteCount: 50, maxVoteCount: 500, sortBy: "vote_average.desc"))
+        async let gemTVFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .series, minVoteAverage: 7.5, minVoteCount: 30, maxVoteCount: 300, sortBy: "vote_average.desc"))
+        async let acclaimedMoviesFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .movie, minVoteCount: 5000, sortBy: "vote_average.desc"))
+        async let acclaimedTVFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .series, minVoteCount: 2000, sortBy: "vote_average.desc"))
+        async let monthRankings = fetchCommunityRankings(since: monthStart)
+        async let yearRankings = fetchCommunityRankings(since: yearStart)
+
+        // Personalized rows kick off now too (concurrent with everything).
+        async let personalized = loadPersonalizedDiscoverRows()
+
+        // ── Phase 1: the fast TMDB rows → render the page immediately, so it
+        // never waits on the slower community-ranking resolution below. ──
+        var feed = DiscoverFeed()
+        feed.seasonal = await seasonalFetch
+        feed.trendingWeek = await trendingFetch
+        feed.recentlyReleased = interleaveShows(await recentMoviesFetch, await recentTVFetch)
+        feed.hiddenGems = interleaveShows(await gemMoviesFetch, await gemTVFetch)
+        feed.awardWinners = interleaveShows(await acclaimedMoviesFetch, await acclaimedTVFetch)
+        feed.isLoaded = true
+        discoverFeed = feed
+        ImageCache.shared.prefetch((feed.trendingWeek + feed.recentlyReleased
+            + feed.hiddenGems + feed.awardWinners).map(\.posterURL))
+
+        // ── Phase 2: personalized rows fill into their slots as they arrive
+        // (empty rows render nothing, so nothing flashes). ──
+        let (byTitle, byShows, genreShows) = await personalized
+        discoverFeed.becauseYouRatedTitle = byTitle
+        discoverFeed.becauseYouRatedShows = byShows
+        discoverFeed.favoriteGenreShows = genreShows
+        ImageCache.shared.prefetch((byShows + genreShows).map(\.posterURL))
+
+        // ── Phase 3: community rankings (slowest — resolves show details). ──
+        let month = await monthRankings
+        discoverFeed.highestRatedMonth = month.highestRated
+        discoverFeed.mostReviewedMonth = month.mostReviewed
+        let year = await yearRankings
+        discoverFeed.highestRatedYear = year.highestRated
+        ImageCache.shared.prefetch((month.highestRated + month.mostReviewed + year.highestRated).map(\.show.posterURL))
+    }
+
+    /// "Because You Rated X" + favorite-genre rows. Returns rather than
+    /// mutating state so the caller can slot results in progressively.
+    private func loadPersonalizedDiscoverRows() async -> (title: String?, shows: [Show], genreShows: [Show]) {
+        var seedTitle: String?
+        var seedShows: [Show] = []
+        if let seed = userReviews.filter({ $0.nebRating >= 8 }).max(by: { lhs, rhs in
+            lhs.nebRating != rhs.nebRating ? lhs.nebRating < rhs.nebRating : lhs.timestamp < rhs.timestamp
+        }) {
+            let recs = await fetchRecommendationsDetached(tmdbID: seed.showID, category: seed.showCategory)
+            if !recs.isEmpty { seedTitle = seed.showTitle; seedShows = recs }
+        }
+
+        var genreShows: [Show] = []
+        if let genres = currentUser?.favoriteGenres, !genres.isEmpty {
+            let movieIDs = genres.compactMap { GenreCatalog.tmdbGenreIDs[$0] }
+            let tvIDs = genres.compactMap { GenreCatalog.tmdbTVGenreIDs[$0] ?? GenreCatalog.tmdbGenreIDs[$0] }
+            async let movies = fetchDiscover(filter: DiscoverFilter(
+                category: .movie, genreIDs: movieIDs, genreMatch: .any, minVoteAverage: 6.8, minVoteCount: 300))
+            async let tv = fetchDiscover(filter: DiscoverFilter(
+                category: .series, genreIDs: Array(Set(tvIDs)), genreMatch: .any, minVoteAverage: 7.2, minVoteCount: 150))
+            genreShows = interleaveShows(await movies, await tv)
+        }
+        return (seedTitle, seedShows, genreShows)
+    }
+
+    /// Merges movie + TV lists into one visually-mixed row, de-duped.
+    private func interleaveShows(_ first: [Show], _ second: [Show]) -> [Show] {
+        var result: [Show] = []
+        var seen = Set<Int>()
+        for index in 0..<max(first.count, second.count) {
+            if index < first.count, seen.insert(first[index].id).inserted { result.append(first[index]) }
+            if index < second.count, seen.insert(second[index].id).inserted { result.append(second[index]) }
+        }
+        return result
     }
 
     // MARK: - Seasonal collections

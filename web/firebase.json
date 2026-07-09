@@ -16,6 +16,32 @@
           }
         ]
       }
+    ],
+    "redirects": [
+      {
+        "source": "/home",
+        "type": 301,
+        "destination": "/"
+      },
+      {
+        "source": "/home/",
+        "type": 301,
+        "destination": "/"
+      }
+    ],
+    "rewrites": [
+      {
+        "source": "/show/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/user/**",
+        "destination": "/index.html"
+      },
+      {
+        "source": "/list/**",
+        "destination": "/index.html"
+      }
     ]
   }
 }

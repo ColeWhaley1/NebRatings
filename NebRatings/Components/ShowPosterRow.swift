@@ -49,6 +49,11 @@ struct ShowPosterRow: View {
                     .padding(.horizontal, 16)
                 }
             }
+            // Warm every poster in the row — including the ones off the right
+            // edge — so horizontal scrolling never waits on a download.
+            .task(id: shows.map(\.id)) {
+                ImageCache.shared.prefetch(shows.map(\.posterURL))
+            }
         }
     }
 

@@ -33,6 +33,9 @@ struct UserProfileView: View {
     @State private var pickDestination: Show?
     /// Pushes the taste-comparison screen.
     @State private var showingCompatibility = false
+    /// Profile share sheet payload.
+    @State private var shareItems: [Any] = []
+    @State private var isSharePresented = false
 
     private let reviewsPerPage = 5
 
@@ -91,6 +94,24 @@ struct UserProfileView: View {
         }
         .navigationTitle(profile?.username ?? "Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let profile {
+                    Button {
+                        Task {
+                            shareItems = await ShareService.items(for: .profile(profile))
+                            isSharePresented = true
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share \(profile.username)'s profile")
+                }
+            }
+        }
+        .sheet(isPresented: $isSharePresented) {
+            ActivityShareSheet(items: shareItems)
+        }
         .navigationDestination(item: $pickDestination) { show in
             ShowDetailView(show: show)
         }

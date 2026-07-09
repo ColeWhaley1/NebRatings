@@ -32,9 +32,12 @@ struct TMDBMovie: Codable {
     let voteCount: Int?
     let popularity: Double?
     let genreIds: [Int]?
-    
+    /// TMDB's pornographic-content flag. We hard-drop any title where this
+    /// is true, on every endpoint (belt-and-suspenders with include_adult).
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, popularity
+        case id, title, overview, popularity, adult
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -69,9 +72,11 @@ struct TMDBTV: Codable {
     let voteCount: Int?
     let popularity: Double?
     let genreIds: [Int]?
-    
+    /// TMDB's pornographic-content flag (dropped everywhere).
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, popularity
+        case id, name, overview, popularity, adult
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -212,9 +217,10 @@ struct MovieDetailsResponse: Codable {
     let voteAverage: Double?
     let voteCount: Int?
     let genres: [TMDBGenre]?
-    
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, tagline, genres
+        case id, title, overview, tagline, genres, adult
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -236,9 +242,10 @@ struct TVDetailsResponse: Codable {
     let voteCount: Int?
     let genres: [TMDBGenre]?
     let numberOfSeasons: Int?
-    
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, tagline, genres
+        case id, name, overview, tagline, genres, adult
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"

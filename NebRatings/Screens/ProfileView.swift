@@ -29,6 +29,9 @@ struct ProfileView: View {
     @State private var isShowingAvatarPicker = false
     @State private var isShowingEditProfile = false
     @State private var isShowingWrapped = false
+    /// Own-profile share sheet payload.
+    @State private var shareItems: [Any] = []
+    @State private var isSharePresented = false
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -42,6 +45,20 @@ struct ProfileView: View {
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    if let user = store.currentUser {
+                        Button {
+                            Task {
+                                shareItems = await ShareService.items(for: .profile(user))
+                                isSharePresented = true
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(.primary)
+                        }
+                        .accessibilityLabel("Share my profile")
+                    }
+                }
                 ToolbarItem(placement: .navigationBarTrailing) {
                     NavigationLink {
                         SettingsView()
@@ -72,6 +89,9 @@ struct ProfileView: View {
             .fullScreenCover(isPresented: $isShowingWrapped) {
                 YearInReviewView(year: Calendar.current.component(.year, from: Date()))
                     .environment(store)
+            }
+            .sheet(isPresented: $isSharePresented) {
+                ActivityShareSheet(items: shareItems)
             }
         }
     }

@@ -224,6 +224,9 @@ struct ListDetailView: View {
     @State private var isEditingName = false
     @State private var editedListName = ""
     @State private var isUpdatingName = false
+    /// List share sheet payload.
+    @State private var shareItems: [Any] = []
+    @State private var isSharePresented = false
     /// Persisted globally — reopening any list restores the last-used filter.
     @AppStorage("listCategoryFilter") private var categoryFilterRaw: String = ListCategoryFilter.all.rawValue
     @State private var showingSurprisePicker = false
@@ -433,15 +436,6 @@ struct ListDetailView: View {
                         description: Text("Add shows to this list from the Discover tab.")
                     )
                 } else {
-                    Picker("Filter", selection: $categoryFilterRaw) {
-                        ForEach(ListCategoryFilter.allCases) { filter in
-                            Text(filter.rawValue).tag(filter.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
-
                     if !surpriseCandidates.isEmpty {
                         Button {
                             showingSurprisePicker = true
@@ -559,12 +553,43 @@ struct ListDetailView: View {
                         }
                     }
                 }
+            } header: {
+                // Lives in the section header, not as a row: a row here with a
+                // custom background/insets breaks SwiftUI's rounded-corner mask
+                // for insetGrouped sections, squaring off the section's top edge
+                // (the "Surprise Me" button below it is the first real row and
+                // needs its default background intact to render the top corners).
+                if !currentList.showReferences.isEmpty {
+                    Picker("Filter", selection: $categoryFilterRaw) {
+                        ForEach(ListCategoryFilter.allCases) { filter in
+                            Text(filter.rawValue).tag(filter.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.bottom, 4)
+                }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(isEditingName ? "" : currentList.name)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            // Share — only for lists others can actually open (a private
+            // list's link would be dead for anyone but the owner).
+            if currentList.visibility != .privateList && !isEditingName {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        Task {
+                            shareItems = await ShareService.items(for: .list(currentList, ownerName: ownerProfile?.username))
+                            isSharePresented = true
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(.primary)
+                    }
+                    .accessibilityLabel("Share this list")
+                }
+            }
             if isOwner {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if isEditingName {
@@ -605,6 +630,9 @@ struct ListDetailView: View {
         .sheet(isPresented: $showingAddContributor) {
             addContributorSheet
         }
+        .sheet(isPresented: $isSharePresented) {
+            ActivityShareSheet(items: shareItems)
+        }
         .sheet(isPresented: $showingSurprisePicker, onDismiss: {
             // Navigate after the sheet is fully gone — pushing while the sheet
             // is animating away gets swallowed.
@@ -628,6 +656,8 @@ struct ListDetailView: View {
             // Fetch any missing shows from the list
             await loadMissingShows()
             await loadListData()
+            // Warm posters for the whole list so rows don't load on scroll.
+            ImageCache.shared.prefetch(currentList.showReferences.compactMap { store.showCache[$0.id]?.posterURL })
         }
         .onChange(of: store.showLists) { _, _ in
             // Update current list when store changes

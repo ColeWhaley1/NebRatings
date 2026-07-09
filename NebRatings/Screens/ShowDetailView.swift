@@ -324,16 +324,13 @@ struct ShowDetailView: View {
         }
     }
     
-    /// Builds the share payload: the show, my rating + review for the current
-    /// season filter when I have one, and the poster when fetchable.
+    /// Builds the share payload via the shared ShareService (enticing copy +
+    /// nebratings.com link + poster). Includes my rating for the current
+    /// season filter when I have one.
     private func prepareShare() async {
         isPreparingShare = true
         let myReview = userReviewForSeason(displayShow.category == .series ? filterSeason : nil)
-        var items: [Any] = [ShareContentBuilder.text(for: displayShow, myReview: myReview)]
-        if let poster = await ShareContentBuilder.posterImage(from: displayShow.posterURL) {
-            items.append(poster)
-        }
-        shareItems = items
+        shareItems = await ShareService.items(for: .show(displayShow, myReview: myReview))
         isPreparingShare = false
         isSharePresented = true
     }

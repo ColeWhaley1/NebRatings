@@ -12,8 +12,18 @@ Domain: **nebratings.com**
 | Share-link generation | `NebRatings/Components/ShareContent.swift` |
 | **Associated Domains entitlement** | `NebRatings/NebRatings.entitlements` (`applinks:nebratings.com`, `applinks:www.nebratings.com`) — builds & signs cleanly on Simulator |
 | **AASA file, ready to upload** | `web/.well-known/apple-app-site-association` |
+| Centralized `ShareService` | `NebRatings/Components/ShareContent.swift` |
+| Public links **switched ON** | `isUniversalLinkingEnabled = true` in `DeepLink.swift` |
 
-Link shapes: `show/{movie|tv}/{tmdbID}` and `user/{userID}`.
+Every share surface now emits a `https://nebratings.com/...` link with
+download-driving copy: show, review, profile (own + others'), list, Watch
+Together, and Year in Review.
+
+Link shapes: `show/{movie|tv}/{tmdbID}`, `user/{userID}`, `list/{listID}`.
+
+> ⚠️ The links are **live in the app now**, but they only *open the app*
+> once the AASA file (step 1 below) is actually hosted. Until then a tapped
+> `nebratings.com` link just opens the browser. Do step 1 to close the loop.
 
 ## ⏳ Remaining — the parts only you can do
 
@@ -35,7 +45,8 @@ The exact file to upload is in this repo at
         "appIDs": ["ND29VRWA3P.com.colewhaley.NebRatings"],
         "components": [
           { "/": "/show/*", "comment": "Movie/TV detail pages" },
-          { "/": "/user/*", "comment": "User profile pages" }
+          { "/": "/user/*", "comment": "User profile pages" },
+          { "/": "/list/*", "comment": "Shared list pages" }
         ]
       }
     ]
@@ -80,13 +91,11 @@ also be enabled on the App ID:
   refresh the profile. (Simulator builds don't need any of this — they
   already work.)
 
-### 3. Flip the switch
-Once step 1 is verified live, in `NebRatings/Models/DeepLink.swift`:
-```swift
-static let isUniversalLinkingEnabled = true
-```
-This turns on public `https://nebratings.com/...` links in share sheets. The
-routing that receives them is already in place.
+### 3. (Already done) Public links are switched on
+`isUniversalLinkingEnabled = true` is already set, so every share sheet
+carries a `nebratings.com` link right now. Nothing to do here — just be aware
+those links only *open the app* after step 1 is live. If you want to pull the
+links back temporarily (e.g. before the AASA is hosted), set it to `false`.
 
 ### 4. (Recommended) web fallback pages
 When the app isn't installed, `https://nebratings.com/show/...` opens in a
@@ -110,6 +119,12 @@ xcrun simctl openurl booted "nebratings://user/<aUserID>"
    toggle airplane mode.
 
 ## Extending later
-Add `case list(id:)` to `DeepLink`, a `list/{id}` path in the parser/generator,
-a `{ "/": "/list/*" }` AASA component, and a resolve branch in
-`ContentView.resolvePendingLink()`.
+The pattern for a new linkable entity (as used for show / user / list): add a
+`case` to `DeepLink`, a path in the parser + generator, an AASA `components`
+entry, a resolve branch in `ContentView.resolvePendingLink()`, and a
+`ShareService.Subject` case. That's the whole surface.
+
+Recommended next: **web fallback pages** at `/show/*`, `/user/*`, `/list/*`
+with Open Graph tags (title, poster, description) so shared links show a rich
+preview in Messages/social and offer an App Store button when the app isn't
+installed.

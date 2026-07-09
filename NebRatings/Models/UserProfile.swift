@@ -75,6 +75,33 @@ struct UserProfile: Identifiable, Hashable {
         self.contentPreference = contentPreference
     }
 
+    /// Copy with the critic aggregate replaced, EVERY other field preserved.
+    /// Local mutation helpers must go through here so they can never silently
+    /// drop newer fields (this exact drift wiped contentPreference/bio/etc.
+    /// on every review write).
+    func withCriticAggregate(sum: Double, count: Int) -> UserProfile {
+        UserProfile(
+            id: id, username: username, avatarEmoji: avatarEmoji,
+            criticDeltaSum: sum, criticDeltaCount: count,
+            genreCounts: genreCounts,
+            bio: bio, favoriteGenres: favoriteGenres,
+            favoriteMovie: favoriteMovie, favoriteShow: favoriteShow,
+            joinDate: joinDate, contentPreference: contentPreference
+        )
+    }
+
+    /// Copy with the genre tally replaced, every other field preserved.
+    func withGenreCounts(_ counts: [String: Int]) -> UserProfile {
+        UserProfile(
+            id: id, username: username, avatarEmoji: avatarEmoji,
+            criticDeltaSum: criticDeltaSum, criticDeltaCount: criticDeltaCount,
+            genreCounts: counts,
+            bio: bio, favoriteGenres: favoriteGenres,
+            favoriteMovie: favoriteMovie, favoriteShow: favoriteShow,
+            joinDate: joinDate, contentPreference: contentPreference
+        )
+    }
+
     /// Average (nebRating − TMDB) across comparable reviews; nil if none.
     var criticDelta: Double? {
         guard let count = criticDeltaCount, count > 0, let sum = criticDeltaSum else { return nil }

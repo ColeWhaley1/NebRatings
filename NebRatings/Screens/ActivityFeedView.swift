@@ -68,58 +68,69 @@ private struct ActivityFeedContent: View {
     @State private var activities: [Activity] = []
     @State private var isLoading = true
 
-    /// Friends' (and my own) events float above everyone else's.
+    /// Only friends' events — the viewer's own activity is deliberately
+    /// excluded (the feed is for keeping up with other people, not yourself).
     private var friendActivities: [Activity] {
-        activities.filter { isFriendOrMe($0.userID) }
+        activities.filter { store.isFriend($0.userID) }
     }
 
-    private var communityActivities: [Activity] {
-        activities.filter { !isFriendOrMe($0.userID) }
+    /// "What the community is rating right now" — the shows drawing the most
+    /// ratings recently. Reuses the Discover feed warmed during splash, so
+    /// this section is already populated by the time the tab opens.
+    private var communityTrending: [NebRatingsStore.RankedShow] {
+        store.discoverFeed.mostReviewedMonth
     }
 
     var body: some View {
         List {
-            if isLoading && activities.isEmpty {
-                HStack {
-                    Spacer()
-                    ProgressView()
-                    Spacer()
+            if friendActivities.isEmpty && communityTrending.isEmpty {
+                if isLoading || !store.discoverFeed.isLoaded {
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    }
+                    .listRowSeparator(.hidden)
+                } else {
+                    ContentUnavailableView(
+                        "No activity yet",
+                        systemImage: "sparkles",
+                        description: Text("Add friends to see what they're rating — or check back as the community gets going.")
+                    )
                 }
-                .listRowSeparator(.hidden)
-            } else if activities.isEmpty {
-                ContentUnavailableView(
-                    "No activity yet",
-                    systemImage: "sparkles",
-                    description: Text("Ratings and list updates from the community will show up here.")
-                )
             } else {
                 if !friendActivities.isEmpty {
-                    Section("Friends & You") {
+                    Section("Friends") {
                         ForEach(friendActivities) { activity in
                             ActivityRow(activity: activity, navigationPath: $navigationPath)
                         }
                     }
                 }
-                if !communityActivities.isEmpty {
-                    Section("Community") {
-                        ForEach(communityActivities) { activity in
-                            ActivityRow(activity: activity, navigationPath: $navigationPath)
+                if !communityTrending.isEmpty {
+                    Section {
+                        ForEach(Array(communityTrending.enumerated()), id: \.element.id) { index, ranked in
+                            CommunityTrendingRow(rank: index + 1, ranked: ranked, navigationPath: $navigationPath)
                         }
+                    } header: {
+                        Text("Trending in the Community")
+                    } footer: {
+                        Text("Movies & shows getting the most ratings right now.")
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
         .task {
+            // Warm the community rankings in parallel; the section fills in
+            // reactively via the store's observable feed.
+            Task { await store.preloadDiscover() }
             await load()
         }
         .refreshable {
+            async let warm: Void = store.preloadDiscover(force: true)
             await load()
+            await warm
         }
-    }
-
-    private func isFriendOrMe(_ userID: String) -> Bool {
-        userID == store.currentUser?.id || store.isFriend(userID)
     }
 
     private func load() async {
@@ -156,12 +167,7 @@ private struct ActivityRow: View {
 
                 HStack(spacing: 6) {
                     if let rating = activity.rating {
-                        Text(String(format: "🔥 %.1f", rating))
-                            .font(.caption.bold())
-                            .foregroundStyle(.purple)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.purple.opacity(0.12), in: Capsule())
+                        RatingBadge(rating: rating)
                     }
                     if let season = activity.season {
                         Text("S\(season)")
@@ -226,6 +232,94 @@ private struct ActivityRow: View {
                 navigationPath.append(show)
             }
         }
+    }
+}
+
+// MARK: - Rating badge
+
+/// A compact rating pill whose emoji mirrors the review cards: 🔥 for a great
+/// score, 🤮 for a poor one, and no emoji (a neutral pill) in between. The tint
+/// reflects the same sentiment so a bad rating never looks celebratory.
+private struct RatingBadge: View {
+    let rating: Double
+
+    private var tint: Color {
+        if rating >= 8.0 { return .purple }
+        if rating <= 4.0 { return .red }
+        return .secondary
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if let emoji = ShowDetailHelpers.ratingEmoji(for: rating) {
+                Text(emoji)
+            }
+            Text(String(format: "%.1f", rating))
+                .fontWeight(.bold)
+        }
+        .font(.caption)
+        .foregroundStyle(tint)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(tint.opacity(0.14), in: Capsule())
+    }
+}
+
+// MARK: - Community trending row
+
+/// A single "what the community is rating" entry: rank, poster, title, how many
+/// ratings it's pulling in, and the community's average (with mirrored emoji).
+private struct CommunityTrendingRow: View {
+    let rank: Int
+    let ranked: NebRatingsStore.RankedShow
+    @Binding var navigationPath: NavigationPath
+
+    var body: some View {
+        Button {
+            navigationPath.append(ranked.show)
+        } label: {
+            HStack(spacing: 12) {
+                Text("\(rank)")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.purple)
+                    .frame(width: 18)
+
+                posterThumb
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ranked.show.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.primary)
+                        .lineLimit(2)
+                    Text("\(ranked.reviewCount) \(ranked.reviewCount == 1 ? "rating" : "ratings") this month")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 0)
+
+                RatingBadge(rating: ranked.averageRating)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var posterThumb: some View {
+        Group {
+            if let posterURL = ranked.show.posterURL {
+                AsyncImageView(urlString: posterURL)
+            } else {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.gray.opacity(0.2))
+                    .overlay(
+                        Image(systemName: ranked.show.category == .movie ? "film" : "tv")
+                            .foregroundStyle(Color.secondary)
+                    )
+            }
+        }
+        .frame(width: 40, height: 60)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
 

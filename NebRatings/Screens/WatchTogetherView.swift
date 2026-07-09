@@ -401,11 +401,13 @@ struct WatchTogetherView: View {
     }
 
     private func prepareShare() {
-        let lines = ["Our Watch Together picks 🍿"]
-            + visibleRecommendations.map { "• \($0.show.title) — \($0.confidence)% match" }
-            + ["via NebRatings"]
-        shareItems = [lines.joined(separator: "\n")]
-        isSharePresented = true
+        Task {
+            shareItems = await ShareService.items(for: .watchTogether(
+                picks: visibleRecommendations,
+                groupNames: members.dropFirst().map(\.profile.username)
+            ))
+            isSharePresented = true
+        }
     }
 }
 

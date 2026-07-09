@@ -22,6 +22,7 @@ import Foundation
 enum DeepLink: Hashable {
     case show(id: Int, category: Show.Category)
     case profile(userID: String)
+    case list(id: String)
 }
 
 enum DeepLinkConfig {
@@ -31,13 +32,18 @@ enum DeepLinkConfig {
     /// Public web domain for Universal Links.
     static let webDomain = "nebratings.com"
 
-    /// Gate for PUBLIC https share links. Keep false until the domain is
-    /// actually serving the AASA file (see UNIVERSAL_LINKS_SETUP.md) —
-    /// otherwise shared https links would 404. Custom-scheme routing works
-    /// regardless of this flag (it's for internal/testing links).
-    /// Flip to `true` as the final step, once you've verified the AASA is
-    /// live at https://nebratings.com/.well-known/apple-app-site-association
-    static let isUniversalLinkingEnabled = false
+    /// Master switch for PUBLIC https share links across the app. When true,
+    /// every share sheet carries a `https://nebratings.com/...` deep link.
+    /// (Custom-scheme routing works regardless — this only governs the
+    /// public links we hand out.) Set false if you ever need to pull them.
+    static let isUniversalLinkingEnabled = true
+
+    /// The app's public web home — used as the download-driving link in
+    /// shares that aren't tied to one specific title (e.g. Watch Together).
+    static var homeURL: URL? {
+        guard isUniversalLinkingEnabled else { return nil }
+        return URL(string: "https://\(webDomain)")
+    }
 }
 
 enum DeepLinkParser {
@@ -68,6 +74,11 @@ enum DeepLinkParser {
             guard segments.count >= 2, !segments[1].isEmpty else { return nil }
             return .profile(userID: segments[1])
 
+        case "list":
+            // list / {listID}
+            guard segments.count >= 2, !segments[1].isEmpty else { return nil }
+            return .list(id: segments[1])
+
         default:
             return nil
         }
@@ -85,6 +96,9 @@ enum DeepLinkParser {
         case .profile(let userID):
             guard let encoded = userID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
             path = "user/\(encoded)"
+        case .list(let listID):
+            guard let encoded = listID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+            path = "list/\(encoded)"
         }
 
         if universal {
@@ -121,6 +135,16 @@ enum DeepLinkParser {
 
     private static func token(for category: Show.Category) -> String {
         category == .movie ? "movie" : "tv"
+    }
+}
+
+extension DeepLink {
+    /// Public, shareable https link for this destination — or nil when
+    /// Universal Linking is switched off. Single source of truth for every
+    /// share surface (see ShareService).
+    var shareURL: URL? {
+        guard DeepLinkConfig.isUniversalLinkingEnabled else { return nil }
+        return DeepLinkParser.url(for: self, universal: true)
     }
 }
 

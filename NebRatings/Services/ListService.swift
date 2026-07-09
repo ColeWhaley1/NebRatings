@@ -24,6 +24,10 @@ protocol ListService {
     /// Two visibility-scoped queries (not one broad owner query) so each is
     /// provably allowed under per-document security rules.
     func fetchVisibleLists(ownerID: String, includeFriendsOnly: Bool) async throws -> [ShowList]
+    /// A single list by document id (for deep links). Firestore rules gate
+    /// read access by visibility, so this resolves only when the viewer is
+    /// actually allowed to see it.
+    func fetchList(id: String) async throws -> ShowList?
 }
 
 struct FirebaseListService: ListService {
@@ -125,7 +129,7 @@ struct FirebaseListService: ListService {
                 ])
             }
 
-            if let list = parseList(document: document, fallbackOwnerID: userID) {
+            if let list = parseList(documentID: document.documentID, data: document.data(), fallbackOwnerID: userID) {
                 lists.append(list)
             }
         }
@@ -149,7 +153,7 @@ struct FirebaseListService: ListService {
                 .getDocuments()
             for document in snapshot.documents where !seen.contains(document.documentID) {
                 seen.insert(document.documentID)
-                if let list = parseList(document: document, fallbackOwnerID: ownerID) {
+                if let list = parseList(documentID: document.documentID, data: document.data(), fallbackOwnerID: ownerID) {
                     lists.append(list)
                 }
             }
@@ -158,11 +162,10 @@ struct FirebaseListService: ListService {
         return lists.sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// Parses one Firestore list document. Pure — no healing writes — so it's
-    /// safe for documents the current user doesn't own.
-    private func parseList(document: QueryDocumentSnapshot, fallbackOwnerID: String) -> ShowList? {
-        let data = document.data()
-
+    /// Parses one Firestore list document from its id + data. Pure — no
+    /// healing writes — so it's safe for documents the current user doesn't
+    /// own, and works for both query results and single-doc fetches.
+    private func parseList(documentID: String, data: [String: Any], fallbackOwnerID: String) -> ShowList? {
         guard let name = data["name"] as? String else {
             return nil
         }
@@ -249,7 +252,7 @@ struct FirebaseListService: ListService {
         let visibility = (data["visibility"] as? String).flatMap { ListVisibility(rawValue: $0) } ?? .privateList
 
         return ShowList(
-            id: document.documentID,
+            id: documentID,
             name: name,
             showReferences: showReferences,
             createdAt: createdAt,
@@ -259,6 +262,12 @@ struct FirebaseListService: ListService {
             autoRemoveOnReview: autoRemoveOnReview,
             visibility: visibility
         )
+    }
+
+    func fetchList(id: String) async throws -> ShowList? {
+        let document = try await db.collection("list").document(id).getDocument()
+        guard document.exists, let data = document.data() else { return nil }
+        return parseList(documentID: document.documentID, data: data, fallbackOwnerID: "")
     }
     
     func updateList(_ list: ShowList, for userID: String) async throws {

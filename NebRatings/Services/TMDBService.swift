@@ -116,7 +116,7 @@ struct TMDBService: CatalogService {
         
         do {
             let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
-            return movieResponse.results.map { convertMovieToShow($0) }
+            return movieResponse.results.filter { !($0.adult ?? false) }.map { convertMovieToShow($0) }
         } catch {
             if let errorString = String(data: data, encoding: .utf8) {
             }
@@ -153,7 +153,7 @@ struct TMDBService: CatalogService {
         
         do {
             let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
-            return tvResponse.results.map { convertTVToShow($0) }
+            return tvResponse.results.filter { !($0.adult ?? false) }.map { convertTVToShow($0) }
         } catch {
             if let errorString = String(data: data, encoding: .utf8) {
             }
@@ -199,6 +199,9 @@ struct TMDBService: CatalogService {
         
         do {
             let movieDetails = try JSONDecoder().decode(MovieDetailsResponse.self, from: data)
+            // Hard block: never surface pornographic titles, even via a
+            // direct/deep-link fetch to a specific id.
+            if movieDetails.adult == true { return nil }
             // Fetch watch providers
             let watchProviders = try? await fetchWatchProviders(tmdbID: movieDetails.id, category: .movie)
             return convertMovieDetailsToShow(movieDetails, watchProviders: watchProviders ?? [])
@@ -232,6 +235,8 @@ struct TMDBService: CatalogService {
         
         do {
             let tvDetails = try JSONDecoder().decode(TVDetailsResponse.self, from: data)
+            // Hard block pornographic titles even on a direct fetch.
+            if tvDetails.adult == true { return nil }
             // Fetch watch providers
             let watchProviders = try? await fetchWatchProviders(tmdbID: tvDetails.id, category: .series)
             return convertTVDetailsToShow(tvDetails, watchProviders: watchProviders ?? [])
@@ -508,7 +513,7 @@ struct TMDBService: CatalogService {
         
         do {
             let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
-            return movieResponse.results.map { convertMovieToShow($0) }
+            return movieResponse.results.filter { !($0.adult ?? false) }.map { convertMovieToShow($0) }
         } catch {
             if let errorString = String(data: data, encoding: .utf8) {
             }
@@ -543,7 +548,7 @@ struct TMDBService: CatalogService {
         
         do {
             let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
-            return tvResponse.results.map { convertTVToShow($0) }
+            return tvResponse.results.filter { !($0.adult ?? false) }.map { convertTVToShow($0) }
         } catch {
             if let errorString = String(data: data, encoding: .utf8) {
             }
@@ -591,7 +596,7 @@ struct TMDBService: CatalogService {
         
         do {
             let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
-            return movieResponse.results.map { convertMovieToShow($0) }
+            return movieResponse.results.filter { !($0.adult ?? false) }.map { convertMovieToShow($0) }
         } catch {
             if let errorString = String(data: data, encoding: .utf8) {
             }
@@ -626,7 +631,7 @@ struct TMDBService: CatalogService {
         
         do {
             let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
-            return tvResponse.results.map { convertTVToShow($0) }
+            return tvResponse.results.filter { !($0.adult ?? false) }.map { convertTVToShow($0) }
         } catch {
             if let errorString = String(data: data, encoding: .utf8) {
             }
@@ -662,10 +667,10 @@ struct TMDBService: CatalogService {
         do {
             if isMovie {
                 let movieResponse = try JSONDecoder().decode(MovieResponse.self, from: data)
-                return movieResponse.results.map { convertMovieToShow($0) }
+                return movieResponse.results.filter { !($0.adult ?? false) }.map { convertMovieToShow($0) }
             } else {
                 let tvResponse = try JSONDecoder().decode(TVResponse.self, from: data)
-                return tvResponse.results.map { convertTVToShow($0) }
+                return tvResponse.results.filter { !($0.adult ?? false) }.map { convertTVToShow($0) }
             }
         } catch {
             throw TMDBError.decodingError

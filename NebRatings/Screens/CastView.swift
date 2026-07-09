@@ -45,6 +45,8 @@ struct CastView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             cast = await store.fetchCast(for: show)
+            // Warm all headshots up front so the grid fills without pop-in.
+            ImageCache.shared.prefetch(cast.map(\.profileURL))
             isLoading = false
         }
     }

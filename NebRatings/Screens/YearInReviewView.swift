@@ -365,14 +365,19 @@ struct YearInReviewView: View {
         .tint(.purple)
     }
 
-    /// Renders a card view to an image and opens the share sheet.
+    /// Renders a card view to an image and opens the share sheet via the
+    /// shared ShareService (image + copy + a link to the sharer's profile).
     @MainActor
     private func share<Card: View>(_ card: Card) {
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3 // crisp on social feeds
         guard let image = renderer.uiImage else { return }
-        shareItems = [image, "My \(String(year)) on NebRatings 🔥"]
-        isSharePresented = true
+        Task {
+            shareItems = await ShareService.items(for: .yearInReview(
+                year: year, card: image, sharerID: store.currentUser?.id
+            ))
+            isSharePresented = true
+        }
     }
 }
 

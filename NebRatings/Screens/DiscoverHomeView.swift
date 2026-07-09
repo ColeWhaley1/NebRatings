@@ -15,32 +15,20 @@ import UIKit  // mood-chip tap haptic
 struct DiscoverHomeView: View {
     @Environment(NebRatingsStore.self) private var store
 
-    @State private var trendingWeek: [Show] = []
-    @State private var recentlyReleased: [Show] = []
-    @State private var hiddenGems: [Show] = []
-    /// Collections active for today's date (Christmas, Halloween Horror, …).
-    @State private var seasonalCollections: [SeasonalCollection] = []
-    @State private var awardWinners: [Show] = []
-    @State private var favoriteGenreShows: [Show] = []
-    @State private var becauseYouRatedTitle: String?
-    @State private var becauseYouRatedShows: [Show] = []
-    @State private var highestRatedMonth: [NebRatingsStore.RankedShow] = []
-    @State private var mostReviewedMonth: [NebRatingsStore.RankedShow] = []
-    @State private var highestRatedYear: [NebRatingsStore.RankedShow] = []
-
-    @State private var isLoading = true
-    @State private var hasLoaded = false
+    /// The Discover payload lives in the store (warmed during splash), so the
+    /// view is a thin renderer — no on-appear fetch waterfall.
+    private var feed: NebRatingsStore.DiscoverFeed { store.discoverFeed }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 26) {
                 moodsSection
 
-                if !seasonalCollections.isEmpty {
+                if !feed.seasonal.isEmpty {
                     seasonalSection
                 }
 
-                if isLoading {
+                if !feed.isLoaded {
                     HStack {
                         Spacer()
                         ProgressView("Curating…")
@@ -48,62 +36,60 @@ struct DiscoverHomeView: View {
                     }
                     .padding(.vertical, 40)
                 } else {
-                    ShowPosterRow(title: "Trending This Week", shows: trendingWeek)
+                    ShowPosterRow(title: "Trending This Week", shows: feed.trendingWeek)
 
                     rankedRow(
                         title: "Highest Rated This Month",
                         subtitle: "Rated by the NebRatings community",
-                        ranked: highestRatedMonth,
+                        ranked: feed.highestRatedMonth,
                         badge: { String(format: "🔥 %.1f", $0.averageRating) }
                     )
 
                     rankedRow(
                         title: "Most Reviewed This Month",
                         subtitle: "What the community is talking about",
-                        ranked: mostReviewedMonth,
+                        ranked: feed.mostReviewedMonth,
                         badge: { "\($0.reviewCount) \($0.reviewCount == 1 ? "review" : "reviews")" }
                     )
 
-                    if let becauseYouRatedTitle {
+                    if let becauseYouRatedTitle = feed.becauseYouRatedTitle {
                         ShowPosterRow(
                             title: "Because You Rated \(becauseYouRatedTitle) Highly",
-                            shows: becauseYouRatedShows
+                            shows: feed.becauseYouRatedShows
                         )
                     }
 
                     ShowPosterRow(
                         title: "Based on Your Favorite Genres",
                         subtitle: favoriteGenresSubtitle,
-                        shows: favoriteGenreShows
+                        shows: feed.favoriteGenreShows
                     )
 
                     rankedRow(
                         title: "Highest Rated This Year",
                         subtitle: "The community's \(Calendar.current.component(.year, from: Date())) favorites",
-                        ranked: highestRatedYear,
+                        ranked: feed.highestRatedYear,
                         badge: { String(format: "🔥 %.1f", $0.averageRating) }
                     )
 
-                    ShowPosterRow(title: "Recently Released", shows: recentlyReleased)
-                    ShowPosterRow(title: "Hidden Gems", subtitle: "Great, but under the radar", shows: hiddenGems)
-                    ShowPosterRow(title: "Award Winners", subtitle: "All-time critical darlings", shows: awardWinners)
+                    ShowPosterRow(title: "Recently Released", shows: feed.recentlyReleased)
+                    ShowPosterRow(title: "Hidden Gems", subtitle: "Great, but under the radar", shows: feed.hiddenGems)
+                    ShowPosterRow(title: "Award Winners", subtitle: "All-time critical darlings", shows: feed.awardWinners)
                 }
             }
             .padding(.vertical, 12)
         }
         .task {
-            await loadAll()
+            // Usually a no-op — the splash preload already warmed this. Only
+            // fetches if the user reached Discover before it finished.
+            await store.preloadDiscover()
         }
         .refreshable {
-            hasLoaded = false
-            await loadAll()
+            await store.preloadDiscover(force: true)
         }
         .onChange(of: store.contentPreference) { _, _ in
-            // Changing the maturity level in Settings invalidates every
-            // curated row — rebuild the page against the new preference.
-            hasLoaded = false
-            isLoading = true
-            Task { await loadAll() }
+            // Changing the maturity level invalidates every curated row.
+            Task { await store.preloadDiscover(force: true) }
         }
     }
 
@@ -211,7 +197,7 @@ struct DiscoverHomeView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
-                    ForEach(Array(seasonalCollections.enumerated()), id: \.element.id) { index, collection in
+                    ForEach(Array(feed.seasonal.enumerated()), id: \.element.id) { index, collection in
                         NavigationLink(value: collection) {
                             seasonalCard(collection, colors: Self.seasonalGradients[index % Self.seasonalGradients.count])
                         }
@@ -269,108 +255,6 @@ struct DiscoverHomeView: View {
     private var favoriteGenresSubtitle: String? {
         guard let genres = store.currentUser?.favoriteGenres, !genres.isEmpty else { return nil }
         return genres.joined(separator: " · ")
-    }
-
-    // MARK: - Loading
-
-    private func loadAll() async {
-        guard !hasLoaded else { return }
-        hasLoaded = true
-        isLoading = trendingWeek.isEmpty
-
-        let now = Date()
-        let calendar = Calendar.current
-        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
-        let yearStart = calendar.date(from: calendar.dateComponents([.year], from: now)) ?? now
-        let sixtyDaysAgo = calendar.date(byAdding: .day, value: -60, to: now) ?? now
-
-        // TMDB rows — all independent, fetched concurrently.
-        async let seasonalFetch = store.fetchActiveSeasonalCollections()
-        async let trendingFetch = store.fetchTrendingWeek()
-        async let recentMoviesFetch = store.fetchDiscover(filter: DiscoverFilter(
-            category: .movie, minVoteCount: 50, releasedAfter: sixtyDaysAgo, releasedBefore: now
-        ))
-        async let recentTVFetch = store.fetchDiscover(filter: DiscoverFilter(
-            category: .series, minVoteCount: 20, releasedAfter: sixtyDaysAgo, releasedBefore: now
-        ))
-        async let gemMoviesFetch = store.fetchDiscover(filter: DiscoverFilter(
-            category: .movie, minVoteAverage: 7.2, minVoteCount: 50, maxVoteCount: 500, sortBy: "vote_average.desc"
-        ))
-        async let gemTVFetch = store.fetchDiscover(filter: DiscoverFilter(
-            category: .series, minVoteAverage: 7.5, minVoteCount: 30, maxVoteCount: 300, sortBy: "vote_average.desc"
-        ))
-        async let acclaimedMoviesFetch = store.fetchDiscover(filter: DiscoverFilter(
-            category: .movie, minVoteCount: 5000, sortBy: "vote_average.desc"
-        ))
-        async let acclaimedTVFetch = store.fetchDiscover(filter: DiscoverFilter(
-            category: .series, minVoteCount: 2000, sortBy: "vote_average.desc"
-        ))
-
-        // Community rankings (two windows, one review query each).
-        async let monthRankings = store.fetchCommunityRankings(since: monthStart)
-        async let yearRankings = store.fetchCommunityRankings(since: yearStart)
-
-        seasonalCollections = await seasonalFetch
-        trendingWeek = await trendingFetch
-        recentlyReleased = interleave(await recentMoviesFetch, await recentTVFetch)
-        hiddenGems = interleave(await gemMoviesFetch, await gemTVFetch)
-        awardWinners = interleave(await acclaimedMoviesFetch, await acclaimedTVFetch)
-
-        let month = await monthRankings
-        highestRatedMonth = month.highestRated
-        mostReviewedMonth = month.mostReviewed
-        highestRatedYear = (await yearRankings).highestRated
-
-        await loadPersonalizedRows()
-
-        isLoading = false
-    }
-
-    /// "Because You Rated X Highly" + "Based on Your Favorite Genres".
-    private func loadPersonalizedRows() async {
-        // Seed: the user's highest-rated review (8+), most recent on ties.
-        if let seed = store.userReviews
-            .filter({ $0.nebRating >= 8 })
-            .max(by: { lhs, rhs in
-                if lhs.nebRating != rhs.nebRating { return lhs.nebRating < rhs.nebRating }
-                return lhs.timestamp < rhs.timestamp
-            }) {
-            let recs = await store.fetchRecommendationsDetached(tmdbID: seed.showID, category: seed.showCategory)
-            if !recs.isEmpty {
-                becauseYouRatedTitle = seed.showTitle
-                becauseYouRatedShows = recs
-            }
-        }
-
-        if let genres = store.currentUser?.favoriteGenres, !genres.isEmpty {
-            let movieIDs = genres.compactMap { GenreCatalog.tmdbGenreIDs[$0] }
-            let tvIDs = genres.compactMap { GenreCatalog.tmdbTVGenreIDs[$0] ?? GenreCatalog.tmdbGenreIDs[$0] }
-            async let movies = store.fetchDiscover(filter: DiscoverFilter(
-                category: .movie, genreIDs: movieIDs, genreMatch: .any, minVoteAverage: 6.8, minVoteCount: 300
-            ))
-            async let tv = store.fetchDiscover(filter: DiscoverFilter(
-                category: .series, genreIDs: Array(Set(tvIDs)), genreMatch: .any, minVoteAverage: 7.2, minVoteCount: 150
-            ))
-            favoriteGenreShows = interleave(await movies, await tv)
-        }
-    }
-
-    /// Merges movie + TV results into one visually-mixed row.
-    private func interleave(_ first: [Show], _ second: [Show]) -> [Show] {
-        var result: [Show] = []
-        var seen = Set<Int>()
-        let maxCount = max(first.count, second.count)
-        for index in 0..<maxCount {
-            if index < first.count, !seen.contains(first[index].id) {
-                seen.insert(first[index].id)
-                result.append(first[index])
-            }
-            if index < second.count, !seen.contains(second[index].id) {
-                seen.insert(second[index].id)
-                result.append(second[index])
-            }
-        }
-        return result
     }
 }
 

@@ -20,10 +20,11 @@ enum AppTab: Hashable {
 struct ContentView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @AppStorage("colorScheme") private var colorScheme: String = "dark"
-    /// One-time content-preference prompt (onboarding). Shown once per
-    /// launch at most, only while the profile has never chosen.
+    /// One-time content-preference prompt (onboarding). Persisted across
+    /// launches so it appears exactly once ever — after that, users change it
+    /// in Settings. (Dismissing without choosing still counts as "seen".)
     @State private var showingContentPreferencePrompt = false
-    @State private var hasOfferedContentPreferencePrompt = false
+    @AppStorage("hasSeenContentPreferencePrompt") private var hasSeenContentPreferencePrompt = false
 
     // MARK: Deep linking
     /// Parsed-but-not-yet-shown link. Held until the user is authenticated
@@ -33,6 +34,7 @@ struct ContentView: View {
     /// works regardless of the active tab and needs no per-tab plumbing.
     @State private var linkedShow: Show?
     @State private var linkedProfile: ProfileLinkTarget?
+    @State private var linkedList: ShowList?
     
     private var selectedColorScheme: ColorScheme? {
         switch colorScheme {
@@ -85,12 +87,10 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(selectedColorScheme)
-        .onChange(of: store.needsContentPreferencePrompt) { _, needsPrompt in
-            if needsPrompt && !hasOfferedContentPreferencePrompt {
-                hasOfferedContentPreferencePrompt = true
-                showingContentPreferencePrompt = true
-            }
+        .onChange(of: store.needsContentPreferencePrompt) { _, _ in
+            maybeOfferContentPreferencePrompt()
         }
+        .onAppear { maybeOfferContentPreferencePrompt() }
         .sheet(isPresented: $showingContentPreferencePrompt) {
             ContentPreferenceOnboardingSheet()
                 .environment(store)
@@ -129,6 +129,27 @@ struct ContentView: View {
             }
             .environment(store)
         }
+        .sheet(item: $linkedList) { list in
+            NavigationStack {
+                // ListDetailView registers its own Show.self destination, so
+                // it doesn't take the shared DeepLinkDestinations modifier
+                // (that would double-register Show.self).
+                ListDetailView(list: list)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { linkedList = nil }
+                        }
+                    }
+            }
+            .environment(store)
+        }
+    }
+
+    /// Shows the onboarding content-preference prompt exactly once, ever.
+    private func maybeOfferContentPreferencePrompt() {
+        guard store.needsContentPreferencePrompt, !hasSeenContentPreferencePrompt else { return }
+        hasSeenContentPreferencePrompt = true
+        showingContentPreferencePrompt = true
     }
 
     /// Presents the pending link once we're authenticated. Shows resolve
@@ -145,6 +166,13 @@ struct ContentView: View {
             }
         case .profile(let userID):
             linkedProfile = ProfileLinkTarget(userID: userID)
+        case .list(let listID):
+            Task {
+                // Resolves only if visible to the viewer (rules-gated).
+                if let list = await store.fetchList(id: listID) {
+                    linkedList = list
+                }
+            }
         }
     }
 }

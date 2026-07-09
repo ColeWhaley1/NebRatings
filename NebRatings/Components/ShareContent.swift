@@ -2,66 +2,154 @@
 //  ShareContent.swift
 //  NebRatings
 //
-//  Native share-sheet support for ratings and reviews. Builds polished share
-//  text (title, rating, review quote) and bundles the poster image when it
-//  can be fetched. Structured so Universal Links can be added later: when a
-//  web URL scheme exists, return it from `shareURL(for:)` and it joins the
-//  activity items — no call-site changes needed.
+//  ShareService — the single place everything shareable turns into
+//  iOS share-sheet content. Every share carries an enticing, download-
+//  driving line plus a Universal Link to nebratings.com, so a tapped link
+//  opens the app (or the web page → App Store when it isn't installed).
+//
+//  Call sites just do:
+//      shareItems = await ShareService.items(for: .show(show, myReview: r))
+//      isSharePresented = true
+//  and present `ActivityShareSheet(items:)`.
 //
 
 import SwiftUI
 import UIKit
 
-enum ShareContentBuilder {
-    /// Share text for a review (mine or someone else's).
-    static func text(for review: Review, showYear: Int? = nil) -> String {
-        var lines: [String] = []
-        let yearSuffix = showYear.map { " (\($0))" } ?? ""
-        lines.append("\(review.showTitle)\(yearSuffix)")
-        if let season = review.season {
-            lines.append("Season \(season)")
-        }
-        lines.append("🔥 \(formattedRating(review.nebRating))/10 nebs")
-        let comment = review.comment.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !comment.isEmpty {
-            lines.append("“\(comment)”")
-        }
-        lines.append("— \(review.author) on NebRatings")
-        if let url = shareURL(showID: review.showID, category: review.showCategory) {
-            lines.append(url.absoluteString)
-        }
-        return lines.joined(separator: "\n")
+enum ShareService {
+
+    /// Everything the app can share. Add a case here + a builder below to
+    /// give a new surface a link — nothing else needs to change.
+    enum Subject {
+        case show(Show, myReview: Review?)
+        case review(Review, show: Show?)
+        case profile(UserProfile)
+        case list(ShowList, ownerName: String?)
+        case watchTogether(picks: [GroupRecommendation], groupNames: [String])
+        case yearInReview(year: Int, card: UIImage, sharerID: String?)
     }
 
-    /// Share text for a show/movie, optionally with my rating + review.
-    static func text(for show: Show, myReview: Review?) -> String {
-        var lines: [String] = []
-        lines.append("\(show.title) (\(show.year))")
+    /// Activity items for `UIActivityViewController`: an enticing text line,
+    /// the Universal Link as its own item (so share targets can render a
+    /// rich preview / "Copy Link"), and an image where we have one. Async
+    /// because show/review shares fetch a poster.
+    static func items(for subject: Subject) async -> [Any] {
+        switch subject {
+        case .show(let show, let myReview):
+            return await showItems(show, myReview: myReview)
+        case .review(let review, let show):
+            return await reviewItems(review, show: show)
+        case .profile(let profile):
+            return profileItems(profile)
+        case .list(let list, let ownerName):
+            return listItems(list, ownerName: ownerName)
+        case .watchTogether(let picks, let names):
+            return watchTogetherItems(picks, groupNames: names)
+        case .yearInReview(let year, let card, let sharerID):
+            return yearInReviewItems(year: year, card: card, sharerID: sharerID)
+        }
+    }
+
+    // MARK: - Show
+
+    private static func showItems(_ show: Show, myReview: Review?) async -> [Any] {
+        let link = DeepLink.show(id: show.id, category: show.category).shareURL
+        var items: [Any] = []
+
         if let myReview {
-            lines.append("🔥 I rated it \(formattedRating(myReview.nebRating))/10 nebs")
-            let comment = myReview.comment.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !comment.isEmpty {
-                lines.append("“\(comment)”")
+            var text = "🔥 I rated \(show.title) \(rating(myReview.nebRating))/10 on NebRatings"
+            if let comment = trimmed(myReview.comment) {
+                text += "\n“\(comment)”"
             }
+            text += "\n\(callToAction("Rate it yourself and see what your friends think 👇"))"
+            items.append(text)
+        } else {
+            let kind = show.category == .movie ? "movie" : "show"
+            items.append("🍿 \(show.title) (\(show.year)) — see how friends rated this \(kind) and drop your own nebs on NebRatings 👇")
         }
-        lines.append("Shared from NebRatings")
-        if let url = shareURL(showID: show.id, category: show.category) {
-            lines.append(url.absoluteString)
-        }
-        return lines.joined(separator: "\n")
+
+        if let link { items.append(link) }
+        if let poster = await posterImage(from: show.posterURL) { items.append(poster) }
+        return items
     }
 
-    /// Public share link for a title. Emitted only once Universal Linking is
-    /// live (`DeepLinkConfig.isUniversalLinkingEnabled`) — until then this
-    /// stays nil so shares don't carry a dead https link. Flipping that flag
-    /// (after the domain + AASA are up) automatically enriches every share.
-    static func shareURL(showID: Int, category: Show.Category) -> URL? {
-        guard DeepLinkConfig.isUniversalLinkingEnabled else { return nil }
-        return DeepLinkParser.url(for: .show(id: showID, category: category), universal: true)
+    // MARK: - Review
+
+    private static func reviewItems(_ review: Review, show: Show?) async -> [Any] {
+        let link = DeepLink.show(id: review.showID, category: review.showCategory).shareURL
+        var text = "\(review.author) rated \(review.showTitle) \(rating(review.nebRating))/10 on NebRatings 🔥"
+        if let comment = trimmed(review.comment) {
+            text += "\n“\(comment)”"
+        }
+        text += "\n\(callToAction("See more reviews and rate your own 👇"))"
+
+        var items: [Any] = [text]
+        if let link { items.append(link) }
+        if let poster = await posterImage(from: show?.posterURL) { items.append(poster) }
+        return items
     }
 
-    /// Fetches the poster as a UIImage for richer shares. Returns nil on any
-    /// failure — callers share text-only in that case.
+    // MARK: - Profile
+
+    private static func profileItems(_ profile: UserProfile) -> [Any] {
+        let link = DeepLink.profile(userID: profile.id).shareURL
+        var text = "🍿 Check out \(profile.username)'s movie & TV taste on NebRatings"
+        if let genres = profile.favoriteGenres, !genres.isEmpty {
+            text += "\nInto \(genres.prefix(3).joined(separator: ", "))"
+        }
+        text += "\n\(callToAction("See their ratings, reviews & lists — and how your taste compares 💜"))"
+
+        var items: [Any] = [text]
+        if let link { items.append(link) }
+        return items
+    }
+
+    // MARK: - List
+
+    private static func listItems(_ list: ShowList, ownerName: String?) -> [Any] {
+        let link = DeepLink.list(id: list.id).shareURL
+        let count = list.showReferences.count
+        let owner = ownerName.map { "\($0)'s" } ?? "this"
+        var text = "🎬 Check out \(owner) “\(list.name)” list on NebRatings"
+        text += " — \(count) \(count == 1 ? "title" : "titles") to watch."
+        text += "\n\(callToAction("See the full list and build your own 👇"))"
+
+        var items: [Any] = [text]
+        if let link { items.append(link) }
+        return items
+    }
+
+    // MARK: - Watch Together
+
+    private static func watchTogetherItems(_ picks: [GroupRecommendation], groupNames: [String]) -> [Any] {
+        var lines = ["🍿 Our NebRatings picks for movie night:"]
+        for pick in picks.prefix(5) {
+            lines.append("• \(pick.show.title) — \(pick.confidence)% match")
+        }
+        let who = groupNames.isEmpty ? "your crew" : groupNames.prefix(2).joined(separator: " & ")
+        lines.append(callToAction("Find what \(who) should watch next on NebRatings 👇"))
+
+        var items: [Any] = [lines.joined(separator: "\n")]
+        if let link = DeepLinkConfig.homeURL { items.append(link) }
+        return items
+    }
+
+    // MARK: - Year in Review
+
+    private static func yearInReviewItems(year: Int, card: UIImage, sharerID: String?) -> [Any] {
+        // Link to the sharer's profile when we have it (so viewers can
+        // follow / compare), otherwise the app home.
+        let link = sharerID.flatMap { DeepLink.profile(userID: $0).shareURL } ?? DeepLinkConfig.homeURL
+        let text = "My \(year) in movies & TV, wrapped by NebRatings 🎬🔥\n\(callToAction("See yours 👇"))"
+
+        var items: [Any] = [card, text]
+        if let link { items.append(link) }
+        return items
+    }
+
+    // MARK: - Helpers
+
+    /// Fetches a poster as a UIImage for richer shares. nil on any failure.
     static func posterImage(from urlString: String?) async -> UIImage? {
         guard let urlString, let url = URL(string: urlString) else { return nil }
         guard let (data, response) = try? await URLSession.shared.data(from: url),
@@ -70,16 +158,27 @@ enum ShareContentBuilder {
         return UIImage(data: data)
     }
 
-    /// 7.0 → "7", 7.5 → "7.5" — matches how ratings read in the app.
-    private static func formattedRating(_ rating: Double) -> String {
-        rating.truncatingRemainder(dividingBy: 1) == 0
-            ? String(format: "%.0f", rating)
-            : String(format: "%.1f", rating)
+    /// The download nudge. When links are live the URL item does the driving,
+    /// so the copy stays about the payoff, not a naked "download" plea.
+    private static func callToAction(_ text: String) -> String {
+        DeepLinkConfig.isUniversalLinkingEnabled ? text : "\(text)\nnebratings.com"
+    }
+
+    private static func trimmed(_ text: String) -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+
+    /// 7.0 → "7", 7.5 → "7.5".
+    private static func rating(_ value: Double) -> String {
+        value.truncatingRemainder(dividingBy: 1) == 0
+            ? String(format: "%.0f", value)
+            : String(format: "%.1f", value)
     }
 }
 
 /// UIActivityViewController wrapper — used (instead of ShareLink) because a
-/// share can bundle heterogeneous items: text plus an optional poster image.
+/// share bundles heterogeneous items: text, a link, and often an image.
 struct ActivityShareSheet: UIViewControllerRepresentable {
     let items: [Any]
 
