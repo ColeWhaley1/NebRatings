@@ -56,8 +56,7 @@ struct WatchTogetherView: View {
     @State private var members: [GroupMember] = []
 
     /// Share sheet payload.
-    @State private var shareItems: [Any] = []
-    @State private var isSharePresented = false
+    @State private var sharePayload: SharePayload?
     /// Which recommendation is being saved (drives the list-picker sheet).
     @State private var savingRecommendation: GroupRecommendation?
     /// ids already saved this session (button feedback).
@@ -88,8 +87,8 @@ struct WatchTogetherView: View {
         .task {
             await loadFriends()
         }
-        .sheet(isPresented: $isSharePresented) {
-            ActivityShareSheet(items: shareItems)
+        .sheet(item: $sharePayload) { payload in
+            ActivityShareSheet(items: payload.items)
         }
         .sheet(item: $savingRecommendation) { recommendation in
             SaveToListSheet(
@@ -402,11 +401,10 @@ struct WatchTogetherView: View {
 
     private func prepareShare() {
         Task {
-            shareItems = await ShareService.items(for: .watchTogether(
+            sharePayload = SharePayload(items: await ShareService.items(for: .watchTogether(
                 picks: visibleRecommendations,
                 groupNames: members.dropFirst().map(\.profile.username)
-            ))
-            isSharePresented = true
+            )))
         }
     }
 }

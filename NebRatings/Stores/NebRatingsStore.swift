@@ -46,6 +46,15 @@ final class NebRatingsStore {
     var isSearchingShows = false
     private(set) var isQueryingReviews = false
     private(set) var isLoadingRecommendations = false
+    /// Monotonic token that lets `searchShows` discard out-of-order (stale)
+    /// results when searches overlap. Not observed by any view.
+    @ObservationIgnored private var searchGeneration = 0
+
+    /// Recent search queries, most-recent first, persisted across launches so
+    /// the Discover search field can offer them back when it's focused/empty.
+    private(set) var recentSearches: [String] = []
+    @ObservationIgnored private let recentSearchesKey = "recentSearches"
+    @ObservationIgnored private let maxRecentSearches = 12
 
     var relationships: [Friendship] = []
     /// Cache of other users' profiles keyed by userID — used to render author avatars on reviews.
@@ -76,6 +85,10 @@ final class NebRatingsStore {
     /// Cast lists by TMDB id — fetched the first time a title's cast screen
     /// opens, instant on revisits.
     private var castCache: [Int: [CastMember]] = [:]
+
+    /// Filmographies by TMDB person id — fetched the first time an actor's
+    /// screen opens, instant on revisits.
+    private var filmographyCache: [Int: [Show]] = [:]
     
     // Track if user has explicitly signed out to prevent auto-authentication
     private let hasExplicitlySignedOutKey = "hasExplicitlySignedOut"
@@ -107,6 +120,8 @@ final class NebRatingsStore {
         self.friendshipService = friendshipService
         self.activityService = activityService
         self.appConfigService = appConfigService
+
+        loadRecentSearches()
 
         // Set up auth state listener first - it will fire immediately with current state
         // This ensures we properly restore authentication from Firebase's persisted tokens
@@ -833,18 +848,27 @@ final class NebRatingsStore {
     }
 
     func searchShows(query: String, category: Show.Category? = nil) async {
+        // Each call claims a generation. After the network await, we only apply
+        // results if no newer search has started — otherwise a slow response for
+        // an earlier query could land after (and clobber) a newer one, showing
+        // stale results while the user is still typing. Safe because the store
+        // is @MainActor, so the counter is only ever touched on one actor.
+        searchGeneration += 1
+        let generation = searchGeneration
+
         guard !query.isEmpty else {
             shows = []
             return
         }
-        
+
         isSearchingShows = true
-        defer { isSearchingShows = false }
-        
+        defer { if generation == searchGeneration { isSearchingShows = false } }
+
         do {
             let results = try await catalogService.searchShows(query: query, category: category)
+            guard generation == searchGeneration else { return } // superseded
             shows = results
-            
+
             // Update cache
             for show in results {
                 showCache[show.id] = show
@@ -852,10 +876,42 @@ final class NebRatingsStore {
         } catch {
             // Handle error - could show error state
             // Show empty results on error rather than crashing
+            guard generation == searchGeneration else { return } // superseded
             shows = []
         }
     }
     
+    // MARK: - Search history
+
+    private func loadRecentSearches() {
+        recentSearches = UserDefaults.standard.stringArray(forKey: recentSearchesKey) ?? []
+    }
+
+    /// Records a query the user actually ran (on submit or when they open a
+    /// result). De-duped case-insensitively and moved to the front, so the
+    /// most recent distinct searches surface first.
+    func recordSearch(_ rawQuery: String) {
+        let query = rawQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Ignore trivial fragments — those are keystrokes, not searches.
+        guard query.count >= 2 else { return }
+        recentSearches.removeAll { $0.caseInsensitiveCompare(query) == .orderedSame }
+        recentSearches.insert(query, at: 0)
+        if recentSearches.count > maxRecentSearches {
+            recentSearches = Array(recentSearches.prefix(maxRecentSearches))
+        }
+        UserDefaults.standard.set(recentSearches, forKey: recentSearchesKey)
+    }
+
+    func removeRecentSearch(_ query: String) {
+        recentSearches.removeAll { $0 == query }
+        UserDefaults.standard.set(recentSearches, forKey: recentSearchesKey)
+    }
+
+    func clearRecentSearches() {
+        recentSearches = []
+        UserDefaults.standard.removeObject(forKey: recentSearchesKey)
+    }
+
     func loadTrendingShows(category: Show.Category? = nil) async {
         isSearchingShows = true
         defer { isSearchingShows = false }
@@ -1553,6 +1609,21 @@ final class NebRatingsStore {
             castCache[show.id] = cast
         }
         return cast
+    }
+
+    /// Every movie/TV title an actor appeared in, fetched on demand and cached
+    /// per person. [] on failure — the filmography screen shows its empty state.
+    func fetchFilmography(personID: Int) async -> [Show] {
+        if let cached = filmographyCache[personID] {
+            return cached
+        }
+        let titles = (try? await catalogService.fetchPersonFilmography(personID: personID)) ?? []
+        if !titles.isEmpty {
+            filmographyCache[personID] = titles
+            // Warm the show cache so tapping a poster resolves instantly.
+            for show in titles { showCache[show.id] = show }
+        }
+        return titles
     }
 
     /// Search that RETURNS results instead of mutating the shared Discover

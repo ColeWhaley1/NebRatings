@@ -33,7 +33,11 @@ struct CastView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 18) {
                         ForEach(cast) { member in
-                            castCard(member)
+                            // Tapping an actor opens their filmography.
+                            NavigationLink(value: member) {
+                                castCard(member)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(16)
@@ -43,6 +47,9 @@ struct CastView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Cast")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(for: CastMember.self) { member in
+            ActorFilmographyView(person: member)
+        }
         .task {
             cast = await store.fetchCast(for: show)
             // Warm all headshots up front so the grid fills without pop-in.

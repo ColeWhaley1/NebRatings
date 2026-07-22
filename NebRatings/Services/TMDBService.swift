@@ -21,6 +21,8 @@ protocol CatalogService {
     func fetchKeywordIDs(names: [String]) async throws -> [Int]
     /// Top-billed cast with headshot URLs (fetched on demand).
     func fetchCast(tmdbID: Int, category: Show.Category) async throws -> [CastMember]
+    /// Every movie/TV title a person acted in (combined credits).
+    func fetchPersonFilmography(personID: Int) async throws -> [Show]
 }
 
 struct TMDBService: CatalogService {
@@ -818,6 +820,75 @@ struct TMDBService: CatalogService {
         } catch {
             throw TMDBError.decodingError
         }
+    }
+
+    // MARK: - Person filmography
+
+    /// /person/{id}/combined_credits — the titles an actor acted in, converted
+    /// to `Show`s. De-duped by id (a person can be credited more than once on a
+    /// single title), sorted most-popular first, and capped so a prolific
+    /// actor's page stays browsable rather than dumping hundreds of bit parts.
+    func fetchPersonFilmography(personID: Int) async throws -> [Show] {
+        guard !apiKey.isEmpty else {
+            throw TMDBError.missingAPIKey
+        }
+        guard var urlComponents = URLComponents(string: "\(baseURL)/person/\(personID)/combined_credits") else {
+            throw TMDBError.invalidURL
+        }
+        urlComponents.queryItems = [
+            URLQueryItem(name: "api_key", value: apiKey)
+        ]
+        guard let url = urlComponents.url else {
+            throw TMDBError.invalidURL
+        }
+
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw TMDBError.invalidResponse
+        }
+
+        do {
+            let credits = try JSONDecoder().decode(PersonCreditsResponse.self, from: data)
+            var seenIDs = Set<Int>()
+            return credits.cast
+                .compactMap { convertPersonCreditToShow($0) }
+                .filter { seenIDs.insert($0.id).inserted }
+                .sorted { $0.popularity > $1.popularity }
+                .prefix(40)
+                .map { $0 }
+        } catch {
+            throw TMDBError.decodingError
+        }
+    }
+
+    /// Converts one combined-credits entry to a `Show`. Returns nil for
+    /// non-movie/TV media types (e.g. some person credits are miscellaneous)
+    /// and hard-blocks adult titles.
+    private func convertPersonCreditToShow(_ credit: PersonCredit) -> Show? {
+        let isMovie = credit.mediaType == "movie"
+        let isTV = credit.mediaType == "tv"
+        guard isMovie || isTV else { return nil }
+        if credit.adult == true { return nil }
+
+        let title = (isMovie ? credit.title : credit.name) ?? ""
+        guard !title.isEmpty else { return nil }
+
+        let year = extractYear(from: isMovie ? credit.releaseDate : credit.firstAirDate)
+        return Show(
+            id: credit.id,
+            title: title,
+            category: isMovie ? .movie : .series,
+            year: year,
+            synopsis: credit.overview?.isEmpty == false ? credit.overview! : "No description available",
+            tagline: "",
+            streamingService: "Various",
+            posterURL: posterURL(from: credit.posterPath),
+            backdropURL: backdropURL(from: credit.backdropPath),
+            popularity: credit.popularity ?? 0.0,
+            genres: GenreCatalog.names(forGenreIDs: credit.genreIds),
+            rating: credit.voteAverage
+        )
     }
 
     // MARK: - Trailers

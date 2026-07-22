@@ -166,6 +166,45 @@ struct CastMember: Identifiable, Hashable {
     let order: Int
 }
 
+// MARK: - Person combined credits (actor filmography)
+
+/// `/person/{id}/combined_credits` — an actor's movie *and* TV appearances in
+/// one payload. We only consume the `cast` array (roles they acted in).
+struct PersonCreditsResponse: Codable {
+    let cast: [PersonCredit]
+}
+
+/// One title an actor appeared in. Movies carry `title`/`release_date`; TV
+/// carries `name`/`first_air_date`. `media_type` disambiguates the two so we
+/// can build the right `Show.Category`.
+struct PersonCredit: Codable {
+    let id: Int
+    let mediaType: String
+    let title: String?
+    let name: String?
+    let character: String?
+    let overview: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let releaseDate: String?
+    let firstAirDate: String?
+    let voteAverage: Double?
+    let popularity: Double?
+    let genreIds: [Int]?
+    let adult: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, name, character, overview, popularity, adult
+        case mediaType = "media_type"
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+        case releaseDate = "release_date"
+        case firstAirDate = "first_air_date"
+        case voteAverage = "vote_average"
+        case genreIds = "genre_ids"
+    }
+}
+
 // MARK: - Keyword Search
 
 struct KeywordSearchResponse: Codable {

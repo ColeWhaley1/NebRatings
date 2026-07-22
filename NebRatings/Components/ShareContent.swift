@@ -188,3 +188,15 @@ struct ActivityShareSheet: UIViewControllerRepresentable {
 
     func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
+
+/// Identifiable wrapper so share sheets are presented with `.sheet(item:)`
+/// rather than `.sheet(isPresented:)`. The items are assembled asynchronously
+/// (`ShareService.items` awaits link/image work); presenting by a Bool while
+/// reading a separate `@State` array races the first tap — the sheet can be
+/// built before the items land, showing an empty drawer (just the app icon)
+/// until a second tap. Presenting by item builds the sheet only once the
+/// payload exists, and always with the correct contents.
+struct SharePayload: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}

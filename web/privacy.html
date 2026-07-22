@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — NebRatings</title>
+<meta name="description" content="How NebRatings collects, uses, and protects your information. We don't sell your data, show ads, or use trackers.">
+<meta name="robots" content="index, follow">
+<link rel="icon" type="image/png" href="/nebratings-logo.png">
+<link rel="apple-touch-icon" href="/nebratings-logo.png">
+<meta name="theme-color" content="#0a0711">
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=general-sans@400,500,600&display=swap" rel="stylesheet">
+<style>
+    :root {
+        --bg: #0a0711; --bg-2: #0e0a18;
+        --card: #16111f; --line: #2c2340;
+        --text: #f4f1fb; --muted: #b3abc9; --faint: #8a82a3;
+        --purple: #a855f7; --violet: #7c5cff; --cyan: #34d3ee;
+        --font-display: 'Clash Display', Georgia, serif;
+        --font-body: 'General Sans', -apple-system, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+    body {
+        font-family: var(--font-body); background: var(--bg); color: var(--text);
+        line-height: 1.7; -webkit-font-smoothing: antialiased;
+        background-image:
+            radial-gradient(900px 600px at 10% -10%, rgba(124,92,255,0.18), transparent 60%),
+            radial-gradient(800px 600px at 95% 0%, rgba(236,72,153,0.12), transparent 58%);
+        background-attachment: fixed;
+    }
+    .wrap { max-width: 820px; margin: 0 auto; padding: 0 24px; }
+
+    nav {
+        position: sticky; top: 0; z-index: 20;
+        backdrop-filter: blur(14px); background: rgba(10,7,17,0.6);
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 1.2rem; text-decoration: none; color: var(--text); }
+    .brand img { width: 28px; height: 28px; border-radius: 8px; box-shadow: 0 4px 14px -4px rgba(124,92,255,0.7); }
+    nav .back { color: var(--muted); text-decoration: none; font-size: 0.92rem; font-weight: 500; }
+    nav .back:hover { color: var(--text); }
+
+    header.hero { padding: 60px 0 28px; }
+    header .kick { color: var(--cyan); font-weight: 600; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(2.1rem, 5vw, 3rem); letter-spacing: -0.02em; margin: 10px 0 14px; line-height: 1.05; }
+    .dates { color: var(--faint); font-size: 0.9rem; }
+    .dates b { color: var(--muted); font-weight: 600; }
+
+    .tldr {
+        margin: 28px 0 8px; padding: 18px 22px; border-radius: 16px;
+        background: linear-gradient(120deg, rgba(52,211,238,0.08), rgba(124,92,255,0.10));
+        border: 1px solid var(--line); color: var(--text); font-size: 1rem;
+    }
+    .tldr b { color: #fff; }
+
+    main { padding: 20px 0 40px; }
+    main p { color: var(--muted); margin: 14px 0; }
+    main a { color: #c4b5fd; text-decoration: underline; text-underline-offset: 2px; word-break: break-word; }
+    main a:hover { color: #fff; }
+
+    h2 {
+        font-family: var(--font-display); font-weight: 600;
+        font-size: 1.4rem; letter-spacing: -0.01em; color: var(--text);
+        margin: 40px 0 6px; padding-top: 20px; border-top: 1px solid var(--line);
+    }
+    h3 { font-size: 1.06rem; font-weight: 600; color: var(--text); margin: 22px 0 4px; }
+
+    ul { margin: 12px 0 12px 4px; padding: 0; list-style: none; }
+    ul li { color: var(--muted); position: relative; padding-left: 22px; margin: 9px 0; }
+    ul li::before { content: ''; position: absolute; left: 4px; top: 12px; width: 6px; height: 6px; border-radius: 50%; background: var(--purple); }
+    ul li b, main p b { color: var(--text); font-weight: 600; }
+
+    footer { border-top: 1px solid rgba(255,255,255,0.06); padding: 30px 0; margin-top: 30px; }
+    footer .wrap { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px; }
+    footer .fl { display: flex; gap: 22px; }
+    footer .fl a { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+    footer .fl a:hover { color: var(--text); }
+    footer .muted { color: var(--faint); font-size: 0.85rem; }
+
+    .tmdb { color: var(--faint); font-size: 0.85rem; font-style: italic; margin-top: 30px; }
+</style>
+</head>
+<body>
+
+<nav>
+    <div class="wrap">
+        <a class="brand" href="/"><img src="/nebratings-logo.png" alt="NebRatings"> NebRatings</a>
+        <a class="back" href="/">← Back to site</a>
+    </div>
+</nav>
+
+<div class="wrap">
+    <header class="hero">
+        <div class="kick">Legal</div>
+        <h1>Privacy Policy</h1>
+        <p class="dates"><b>Effective date:</b> July 8, 2026 &nbsp;·&nbsp; <b>Last updated:</b> July 8, 2026</p>
+        <div class="tldr">
+            The short version: <b>we do not sell your personal information, we do not show
+            third-party ads, and we do not use advertising or analytics trackers.</b>
+        </div>
+    </header>
+
+    <main>
+        <p>This Privacy Policy explains how NebRatings (“<b>NebRatings</b>,” “<b>we</b>,” “<b>us</b>,” or “<b>our</b>”) collects, uses, discloses, and protects your information when you use the NebRatings mobile application (the “<b>App</b>”) and the website at nebratings.com (together, the “<b>Service</b>”).</p>
+        <p>NebRatings is a movie and TV rating app that lets you rate titles, write reviews, build lists, discover what to watch, and compare tastes with friends. By creating an account or using the Service, you agree to this Privacy Policy. If you do not agree, please do not use the Service.</p>
+
+        <h2>1. Who we are (Data Controller)</h2>
+        <p>The Service is operated by the developer of NebRatings (“we”). For the purposes of the EU/UK General Data Protection Regulation (GDPR), we are the “data controller” of the personal information described in this policy.</p>
+        <p><b>Contact:</b> <a href="mailto:nebratings@gmail.com">nebratings@gmail.com</a></p>
+
+        <h2>2. Information we collect</h2>
+
+        <h3>2.1 Information you provide to us</h3>
+        <ul>
+            <li><b>Account information.</b> When you create an account, we collect your <b>email address</b> and a <b>password</b>. Your password is managed by Google Firebase Authentication and is stored only in a securely hashed form that we cannot read.</li>
+            <li><b>Profile information.</b> Your <b>username</b>, <b>avatar</b> (an emoji you select), <b>bio</b>, <b>favorite genres</b>, and <b>favorite movie or show</b>.</li>
+            <li><b>Content you create.</b> Your <b>ratings (“nebs”)</b>, <b>written reviews</b>, <b>lists</b>, <b>reactions</b>, and <b>friend connections</b>.</li>
+            <li><b>Preferences.</b> Settings you choose, such as your <b>content-maturity preference</b> (Family Friendly, General Audience, or No Restrictions) and appearance settings.</li>
+            <li><b>Support communications.</b> If you contact us, we receive your message, your email address, and any information you include.</li>
+        </ul>
+
+        <h3>2.2 Information collected automatically</h3>
+        <p>When you use the Service, certain technical information is processed by our infrastructure providers to operate and secure the Service, including:</p>
+        <ul>
+            <li><b>Device and connection data</b>, such as IP address, device type and model, operating-system version, and app version.</li>
+            <li><b>Log and diagnostic data</b>, such as timestamps of actions and error/crash information used to keep the App working.</li>
+            <li><b>Approximate location</b>, which may be inferred from your IP address for security and abuse prevention. We do <b>not</b> collect precise (GPS) location.</li>
+        </ul>
+        <p>We do <b>not</b> collect your device contacts, photos, microphone, or advertising identifier (IDFA), and we do not track you across other companies’ apps or websites.</p>
+
+        <h3>2.3 Information from third parties</h3>
+        <p>Movie and TV information (titles, artwork, cast, and trailers) is supplied by The Movie Database (TMDB). This is content data about films and shows, not personal information about you.</p>
+
+        <h2>3. How we use your information</h2>
+        <p>We use the information above to:</p>
+        <ul>
+            <li>Create, secure, and maintain your account and sign you in across devices;</li>
+            <li>Store and display your ratings, reviews, lists, reactions, and profile;</li>
+            <li>Provide social features you choose to use — friends, the activity feed, taste-compatibility comparisons, “Watch Together” group recommendations, and shared lists;</li>
+            <li>Personalize recommendations (for example, by mood, favorite genres, and your content-maturity preference);</li>
+            <li>Filter out explicit adult content and enforce your content-maturity setting;</li>
+            <li>Respond to your support requests;</li>
+            <li>Detect, prevent, and address fraud, abuse, security incidents, and technical issues; and</li>
+            <li>Comply with legal obligations and enforce our terms.</li>
+        </ul>
+
+        <h2>4. Legal bases for processing (EU/UK users)</h2>
+        <p>If you are in the European Economic Area or the United Kingdom, we process your personal information under the following legal bases:</p>
+        <ul>
+            <li><b>Performance of a contract</b> — to provide the Service you request.</li>
+            <li><b>Consent</b> — where you have given it (for example, optional profile details). You may withdraw consent at any time.</li>
+            <li><b>Legitimate interests</b> — to keep the Service secure, prevent abuse, and improve reliability, in a way that does not override your rights.</li>
+            <li><b>Legal obligation</b> — where we must process information to comply with applicable law.</li>
+        </ul>
+
+        <h2>5. How we share information</h2>
+        <p>We do not sell your personal information. We share information only as follows:</p>
+        <ul>
+            <li><b>Service providers (sub-processors)</b> who process information on our behalf under contractual protections:
+                <ul>
+                    <li><b>Google Firebase</b> (Firebase Authentication and Cloud Firestore) — account authentication and cloud database/storage of your profile and content.</li>
+                    <li><b>Apple</b> — app distribution and, where you enable it at the OS level, standard app diagnostics.</li>
+                    <li><b>The Movie Database (TMDB)</b> — provides film and TV content. When the App loads this content, requests (including your IP address) go to TMDB and its image servers; these requests are not tied to your NebRatings account identity.</li>
+                </ul>
+            </li>
+            <li><b>Other users.</b> Content you make public — reviews, ratings, usernames, avatars, and public lists — is visible to other NebRatings users. Your email address and password are never shown to other users. You control the visibility of each list (public, friends-only, or private).</li>
+            <li><b>Legal and safety.</b> We may disclose information if required by law or to protect the rights, property, or safety of NebRatings, our users, or the public.</li>
+            <li><b>Business transfers.</b> If NebRatings is involved in a merger, acquisition, or sale of assets, information may be transferred as part of that transaction.</li>
+        </ul>
+        <p>We do <b>not</b> sell your personal information and do <b>not</b> “share” it for cross-context behavioral advertising, as those terms are defined under California law.</p>
+
+        <h2>6. Third-party services</h2>
+        <p>The Service relies on the third parties below, whose handling of data is governed by their own privacy policies:</p>
+        <ul>
+            <li>Google / Firebase: <a href="https://policies.google.com/privacy" target="_blank" rel="noopener">policies.google.com/privacy</a></li>
+            <li>Apple: <a href="https://www.apple.com/legal/privacy/" target="_blank" rel="noopener">apple.com/legal/privacy</a></li>
+            <li>The Movie Database (TMDB): <a href="https://www.themoviedb.org/privacy-policy" target="_blank" rel="noopener">themoviedb.org/privacy-policy</a></li>
+        </ul>
+
+        <h2>7. Data retention</h2>
+        <p>We keep your personal information for as long as your account is active or as needed to provide the Service. When you delete your account, we delete or de-identify your profile, ratings, reviews, and lists from our active systems. Some information may persist for a limited period in backups or where retention is required to comply with legal obligations, resolve disputes, or enforce our agreements.</p>
+
+        <h2>8. Data security</h2>
+        <p>We use industry-standard measures to protect your information, including encryption in transit (HTTPS/TLS), hashed password storage via Firebase Authentication, and access controls on our cloud database. No method of transmission or storage is completely secure, so we cannot guarantee absolute security, but we work to protect your information and to promptly address issues if they arise.</p>
+
+        <h2>9. Your rights and choices</h2>
+        <p><b>In the App, you can at any time:</b></p>
+        <ul>
+            <li>Edit or delete your reviews, ratings, and lists;</li>
+            <li>Update or remove profile details, including your bio and favorites;</li>
+            <li>Change your content-maturity preference;</li>
+            <li>Sign out; and</li>
+            <li><b>Delete your account</b> (Settings → Account), which permanently removes your associated content from our active systems.</li>
+        </ul>
+        <p><b>EU/UK (GDPR) rights.</b> If you are in the EEA or UK, you have the right to access, correct, delete, restrict, or object to our processing of your personal information; the right to data portability; and the right to withdraw consent. You also have the right to lodge a complaint with your local data protection authority.</p>
+        <p><b>California (CCPA/CPRA) rights.</b> If you are a California resident, you have the right to know what personal information we collect and how we use and disclose it; the right to delete it; the right to correct it; and the right not to be discriminated against for exercising your rights. We do not sell or share your personal information for cross-context behavioral advertising, so there is nothing to opt out of in that respect.</p>
+        <p><b>Exercising your rights.</b> You can exercise most rights directly in the App. For any other request, email us at <a href="mailto:nebratings@gmail.com">nebratings@gmail.com</a>. We will verify your request using the email associated with your account and respond within the time required by applicable law.</p>
+
+        <h2>10. International data transfers</h2>
+        <p>We are based in the United States, and our service providers may process and store information in the United States and other countries. If you access the Service from outside the United States, your information may be transferred to, stored, and processed in countries whose data-protection laws may differ from those in your country. Where required, we rely on appropriate safeguards (such as the standard contractual clauses offered by our providers) for such transfers.</p>
+
+        <h2>11. Children's privacy</h2>
+        <p>The Service is not directed to children under 13 (or the minimum age required in your country, such as 16 in parts of the EEA), and we do not knowingly collect personal information from children under that age. If you believe a child has provided us personal information, please contact us at <a href="mailto:nebratings@gmail.com">nebratings@gmail.com</a> and we will delete it. NebRatings also filters out explicit adult content and lets you set a content-maturity level suitable for you or your family.</p>
+
+        <h2>12. Do Not Track and Global Privacy Control</h2>
+        <p>We do not track users across third-party apps or websites, and we do not serve targeted advertising, so we do not respond differently to “Do Not Track” or Global Privacy Control signals. Regardless of these signals, we do not sell or share your personal information.</p>
+
+        <h2>13. Third-party links</h2>
+        <p>The Service may contain links to third-party websites or content (for example, a trailer opened on YouTube, or a title’s streaming provider). We are not responsible for the privacy practices of those third parties, and we encourage you to review their policies.</p>
+
+        <h2>14. Changes to this policy</h2>
+        <p>We may update this Privacy Policy from time to time. When we do, we will revise the “Last updated” date above and, where changes are material, provide notice in the App or by email. Your continued use of the Service after an update means you accept the revised policy.</p>
+
+        <h2>15. Contact us</h2>
+        <p>If you have questions, concerns, or requests regarding this Privacy Policy or your personal information, contact us at <a href="mailto:nebratings@gmail.com">nebratings@gmail.com</a>.</p>
+
+        <p class="tmdb">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+    </main>
+</div>
+
+<footer>
+    <div class="wrap">
+        <a class="brand" href="/"><img src="/nebratings-logo.png" alt="NebRatings"> NebRatings</a>
+        <div class="fl">
+            <a href="https://sites.google.com/view/nebratings/home" target="_blank" rel="noopener">Support &amp; FAQ</a>
+            <a href="/privacy.html">Privacy</a>
+            <a href="mailto:nebratings@gmail.com">Contact</a>
+        </div>
+        <div class="muted">© 2026 NebRatings.</div>
+    </div>
+</footer>
+
+</body>
+</html>

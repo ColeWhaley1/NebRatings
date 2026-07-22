@@ -19,8 +19,7 @@ struct YearInReviewView: View {
 
     @State private var stats: YearInReviewStats?
     @State private var page = 0
-    @State private var shareItems: [Any] = []
-    @State private var isSharePresented = false
+    @State private var sharePayload: SharePayload?
 
     var body: some View {
         ZStack {
@@ -78,8 +77,8 @@ struct YearInReviewView: View {
         .task {
             stats = await store.buildYearInReview(year: year)
         }
-        .sheet(isPresented: $isSharePresented) {
-            ActivityShareSheet(items: shareItems)
+        .sheet(item: $sharePayload) { payload in
+            ActivityShareSheet(items: payload.items)
         }
     }
 
@@ -373,10 +372,9 @@ struct YearInReviewView: View {
         renderer.scale = 3 // crisp on social feeds
         guard let image = renderer.uiImage else { return }
         Task {
-            shareItems = await ShareService.items(for: .yearInReview(
+            sharePayload = SharePayload(items: await ShareService.items(for: .yearInReview(
                 year: year, card: image, sharerID: store.currentUser?.id
-            ))
-            isSharePresented = true
+            )))
         }
     }
 }

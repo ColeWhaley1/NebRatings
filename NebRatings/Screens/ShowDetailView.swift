@@ -33,8 +33,7 @@ struct ShowDetailView: View {
     /// Pushes the on-demand cast screen (credits fetch happens there).
     @State private var showingCast = false
     /// Native share sheet payload (text + poster when available).
-    @State private var shareItems: [Any] = []
-    @State private var isSharePresented = false
+    @State private var sharePayload: SharePayload?
     @State private var isPreparingShare = false
     
     private var displayShow: Show {
@@ -224,8 +223,8 @@ struct ShowDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $isSharePresented) {
-            ActivityShareSheet(items: shareItems)
+        .sheet(item: $sharePayload) { payload in
+            ActivityShareSheet(items: payload.items)
         }
         .navigationDestination(isPresented: $showingCast) {
             CastView(show: displayShow)
@@ -330,9 +329,9 @@ struct ShowDetailView: View {
     private func prepareShare() async {
         isPreparingShare = true
         let myReview = userReviewForSeason(displayShow.category == .series ? filterSeason : nil)
-        shareItems = await ShareService.items(for: .show(displayShow, myReview: myReview))
+        let items = await ShareService.items(for: .show(displayShow, myReview: myReview))
         isPreparingShare = false
-        isSharePresented = true
+        sharePayload = SharePayload(items: items)
     }
 
     private func addReview() {

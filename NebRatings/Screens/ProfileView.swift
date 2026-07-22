@@ -29,9 +29,8 @@ struct ProfileView: View {
     @State private var isShowingAvatarPicker = false
     @State private var isShowingEditProfile = false
     @State private var isShowingWrapped = false
-    /// Own-profile share sheet payload.
-    @State private var shareItems: [Any] = []
-    @State private var isSharePresented = false
+    /// Own-profile share sheet payload (nil = not presented).
+    @State private var sharePayload: SharePayload?
 
     var body: some View {
         NavigationStack(path: $navigationPath) {
@@ -49,8 +48,7 @@ struct ProfileView: View {
                     if let user = store.currentUser {
                         Button {
                             Task {
-                                shareItems = await ShareService.items(for: .profile(user))
-                                isSharePresented = true
+                                sharePayload = SharePayload(items: await ShareService.items(for: .profile(user)))
                             }
                         } label: {
                             Image(systemName: "square.and.arrow.up")
@@ -90,8 +88,8 @@ struct ProfileView: View {
                 YearInReviewView(year: Calendar.current.component(.year, from: Date()))
                     .environment(store)
             }
-            .sheet(isPresented: $isSharePresented) {
-                ActivityShareSheet(items: shareItems)
+            .sheet(item: $sharePayload) { payload in
+                ActivityShareSheet(items: payload.items)
             }
         }
     }

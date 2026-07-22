@@ -90,7 +90,13 @@ struct TopThreePicks: View {
                     Group {
                         if let posterURL = show?.posterURL {
                             AsyncImageView(urlString: posterURL)
-                                .aspectRatio(2/3, contentMode: .fill)
+                                // `.fit` (not `.fill`): with no bounding frame, this
+                                // poster's height must derive from the column width.
+                                // `.fill` in an unbounded-height ScrollView makes the
+                                // box grow to contain the proposal and overflow the
+                                // column, clipping the poster. The art still fills the
+                                // box edge-to-edge — AsyncImageView fills + clips.
+                                .aspectRatio(2/3, contentMode: .fit)
                         } else {
                             ZStack {
                                 Rectangle().fill(Color.gray.opacity(0.2))
@@ -98,7 +104,7 @@ struct TopThreePicks: View {
                                     .font(.title)
                                     .foregroundStyle(.secondary)
                             }
-                            .aspectRatio(2/3, contentMode: .fill)
+                            .aspectRatio(2/3, contentMode: .fit)
                         }
                     }
                     .clipShape(RoundedRectangle(cornerRadius: 10))

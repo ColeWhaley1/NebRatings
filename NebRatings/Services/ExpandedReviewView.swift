@@ -15,8 +15,7 @@ struct ExpandedReviewView: View {
     /// Pushes the author's profile inside this sheet's own NavigationStack.
     @State private var profileDestination: UserProfileDestination?
     /// Native share sheet payload (text + poster when available).
-    @State private var shareItems: [Any] = []
-    @State private var isSharePresented = false
+    @State private var sharePayload: SharePayload?
     @State private var isPreparingShare = false
     
     // Get the latest review from the store to ensure it's always up-to-date
@@ -160,8 +159,8 @@ struct ExpandedReviewView: View {
                         }
                     }
                 }
-                .sheet(isPresented: $isSharePresented) {
-                    ActivityShareSheet(items: shareItems)
+                .sheet(item: $sharePayload) { payload in
+                    ActivityShareSheet(items: payload.items)
                 }
                 .sheet(isPresented: $showingEditReview) {
                     if let review = currentReview {
@@ -196,9 +195,9 @@ struct ExpandedReviewView: View {
     private func prepareShare(for review: Review) async {
         isPreparingShare = true
         let show = store.show(for: review)
-        shareItems = await ShareService.items(for: .review(review, show: show))
+        let items = await ShareService.items(for: .review(review, show: show))
         isPreparingShare = false
-        isSharePresented = true
+        sharePayload = SharePayload(items: items)
     }
 
     /// Routing for a tap on the author's avatar/name. Own review → close the

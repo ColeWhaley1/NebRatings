@@ -225,8 +225,7 @@ struct ListDetailView: View {
     @State private var editedListName = ""
     @State private var isUpdatingName = false
     /// List share sheet payload.
-    @State private var shareItems: [Any] = []
-    @State private var isSharePresented = false
+    @State private var sharePayload: SharePayload?
     /// Persisted globally — reopening any list restores the last-used filter.
     @AppStorage("listCategoryFilter") private var categoryFilterRaw: String = ListCategoryFilter.all.rawValue
     @State private var showingSurprisePicker = false
@@ -580,8 +579,7 @@ struct ListDetailView: View {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Button {
                         Task {
-                            shareItems = await ShareService.items(for: .list(currentList, ownerName: ownerProfile?.username))
-                            isSharePresented = true
+                            sharePayload = SharePayload(items: await ShareService.items(for: .list(currentList, ownerName: ownerProfile?.username)))
                         }
                     } label: {
                         Image(systemName: "square.and.arrow.up")
@@ -630,8 +628,8 @@ struct ListDetailView: View {
         .sheet(isPresented: $showingAddContributor) {
             addContributorSheet
         }
-        .sheet(isPresented: $isSharePresented) {
-            ActivityShareSheet(items: shareItems)
+        .sheet(item: $sharePayload) { payload in
+            ActivityShareSheet(items: payload.items)
         }
         .sheet(isPresented: $showingSurprisePicker, onDismiss: {
             // Navigate after the sheet is fully gone — pushing while the sheet
