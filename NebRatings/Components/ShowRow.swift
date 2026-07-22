@@ -9,6 +9,8 @@ import SwiftUI
 
 struct ShowRow: View {
     let show: Show
+    /// Optional label for series in lists, e.g. "Season 1" or "Seasons 1, 2, 3"
+    var seasonsLabel: String? = nil
     
     private var yearFormatted: String {
         let formatter = NumberFormatter()
@@ -49,10 +51,17 @@ struct ShowRow: View {
             // Content
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(show.title)
-                        .font(.headline)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(show.title)
+                            .font(.headline)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let seasonsLabel {
+                            Text(seasonsLabel)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
                     Text(show.category.rawValue)
                         .font(.subheadline)

@@ -7,9 +7,34 @@
 
 import SwiftUI
 
+/// Root tabs. Selection lives in `NebRatingsStore.selectedTab` so any view
+/// can programmatically switch tabs (e.g. "view my own profile" routes here).
+enum AppTab: Hashable {
+    case discover
+    case activity
+    case lists
+    case friends
+    case profile
+}
+
 struct ContentView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @AppStorage("colorScheme") private var colorScheme: String = "dark"
+    /// One-time content-preference prompt (onboarding). Persisted across
+    /// launches so it appears exactly once ever — after that, users change it
+    /// in Settings. (Dismissing without choosing still counts as "seen".)
+    @State private var showingContentPreferencePrompt = false
+    @AppStorage("hasSeenContentPreferencePrompt") private var hasSeenContentPreferencePrompt = false
+
+    // MARK: Deep linking
+    /// Parsed-but-not-yet-shown link. Held until the user is authenticated
+    /// (a link can arrive at a cold launch, before sign-in resolves).
+    @State private var pendingLink: DeepLink?
+    /// Resolved presentation targets — shown as sheets from the root, which
+    /// works regardless of the active tab and needs no per-tab plumbing.
+    @State private var linkedShow: Show?
+    @State private var linkedProfile: ProfileLinkTarget?
+    @State private var linkedList: ShowList?
     
     private var selectedColorScheme: ColorScheme? {
         switch colorScheme {
@@ -23,34 +48,150 @@ struct ContentView: View {
     }
     
     var body: some View {
-        Group {
+        @Bindable var store = store
+        return Group {
             if store.isAuthenticated {
-                TabView {
+                TabView(selection: $store.selectedTab) {
                     SearchShowsView()
                         .tabItem {
                             Label("Discover", systemImage: "magnifyingglass")
                         }
+                        .tag(AppTab.discover)
 
-                    ReviewsFeedView()
+                    ActivityTabView()
                         .tabItem {
-                            Label("Reviews", systemImage: "text.bubble")
+                            Label("Activity", systemImage: "sparkles")
                         }
-                    
+                        .tag(AppTab.activity)
+
                     ListsView()
                         .tabItem {
                             Label("Lists", systemImage: "list.bullet.rectangle")
                         }
+                        .tag(AppTab.lists)
+
+                    FriendsView()
+                        .tabItem {
+                            Label("Friends", systemImage: "person.2.fill")
+                        }
+                        .tag(AppTab.friends)
 
                     ProfileView()
                         .tabItem {
                             Label("Profile", systemImage: "person.crop.circle")
                         }
+                        .tag(AppTab.profile)
                 }
             } else {
                 SignInView()
             }
         }
         .preferredColorScheme(selectedColorScheme)
+        .onChange(of: store.needsContentPreferencePrompt) { _, _ in
+            maybeOfferContentPreferencePrompt()
+        }
+        .onAppear { maybeOfferContentPreferencePrompt() }
+        .sheet(isPresented: $showingContentPreferencePrompt) {
+            ContentPreferenceOnboardingSheet()
+                .environment(store)
+        }
+        // Deep links (custom scheme now, Universal Links once configured).
+        .onOpenURL { url in
+            guard let link = DeepLinkParser.parse(url) else { return }
+            pendingLink = link
+            resolvePendingLink()
+        }
+        .onChange(of: store.isAuthenticated) { _, isAuthed in
+            // A link that arrived before sign-in resolves once we're in.
+            if isAuthed { resolvePendingLink() }
+        }
+        .sheet(item: $linkedShow) { show in
+            NavigationStack {
+                ShowDetailView(show: show)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { linkedShow = nil }
+                        }
+                    }
+                    .modifier(DeepLinkDestinations())
+            }
+            .environment(store)
+        }
+        .sheet(item: $linkedProfile) { target in
+            NavigationStack {
+                UserProfileView(userID: target.userID)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { linkedProfile = nil }
+                        }
+                    }
+                    .modifier(DeepLinkDestinations())
+            }
+            .environment(store)
+        }
+        .sheet(item: $linkedList) { list in
+            NavigationStack {
+                // ListDetailView registers its own Show.self destination, so
+                // it doesn't take the shared DeepLinkDestinations modifier
+                // (that would double-register Show.self).
+                ListDetailView(list: list)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button("Done") { linkedList = nil }
+                        }
+                    }
+            }
+            .environment(store)
+        }
+    }
+
+    /// Shows the onboarding content-preference prompt exactly once, ever.
+    private func maybeOfferContentPreferencePrompt() {
+        guard store.needsContentPreferencePrompt, !hasSeenContentPreferencePrompt else { return }
+        hasSeenContentPreferencePrompt = true
+        showingContentPreferencePrompt = true
+    }
+
+    /// Presents the pending link once we're authenticated. Shows resolve
+    /// through TMDB (id + category → full Show); profiles present directly.
+    private func resolvePendingLink() {
+        guard store.isAuthenticated, let link = pendingLink else { return }
+        pendingLink = nil
+        switch link {
+        case .show(let id, let category):
+            Task {
+                if let show = await store.fetchShowDetailsByTMDBID(tmdbID: id, category: category) {
+                    linkedShow = show
+                }
+            }
+        case .profile(let userID):
+            linkedProfile = ProfileLinkTarget(userID: userID)
+        case .list(let listID):
+            Task {
+                // Resolves only if visible to the viewer (rules-gated).
+                if let list = await store.fetchList(id: listID) {
+                    linkedList = list
+                }
+            }
+        }
+    }
+}
+
+/// Registers the standard push destinations so a deep-linked detail screen
+/// (presented in its own sheet stack) navigates exactly like it does inside
+/// a tab — recommendations, review→show, and profile pushes all work.
+private struct DeepLinkDestinations: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .navigationDestination(for: Show.self) { show in
+                ShowDetailView(show: show)
+            }
+            .navigationDestination(for: ShowWithContext.self) { ctx in
+                ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
+            }
+            .navigationDestination(for: UserProfileDestination.self) { dest in
+                UserProfileView(userID: dest.userID, initialProfile: dest.profile)
+            }
     }
 }
 #Preview {

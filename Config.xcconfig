@@ -26,3 +26,6 @@
 TMDB_API_KEY = $(TMDB_API_KEY)
 TMDB_API_READ_ACCESS_TOKEN = $(TMDB_API_READ_ACCESS_TOKEN)
 
+// App Store ID for "Rate NebRatings" link (add to Config.local.xcconfig: APP_STORE_ID = your_numeric_id)
+APP_STORE_ID = $(APP_STORE_ID)
+

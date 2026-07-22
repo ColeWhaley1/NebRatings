@@ -14,11 +14,13 @@ struct SettingsView: View {
     @State private var showingDeleteConfirmation = false
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
+    @State private var showingChangePassword = false
     
     var body: some View {
         NavigationStack {
             List {
                 appearanceSection
+                contentPreferencesSection
                 accountSection
                 contactSection
                 legalSection
@@ -43,6 +45,16 @@ struct SettingsView: View {
         }
     }
     
+    private var contentPreferencesSection: some View {
+        Section {
+            ContentPreferencePicker()
+        } header: {
+            Text("Content Preferences")
+        } footer: {
+            Text("Shapes what Discover and recommendations suggest. Search always shows every title.")
+        }
+    }
+
     private var accountSection: some View {
         Section("Account") {
             if let user = store.currentUser {
@@ -53,6 +65,10 @@ struct SettingsView: View {
                     Text(user.username)
                         .fontWeight(.medium)
                 }
+            }
+            
+            Button(action: { showingChangePassword = true }) {
+                Label("Change Password", systemImage: "key.fill")
             }
             
             Button(role: .destructive, action: {
@@ -99,6 +115,10 @@ struct SettingsView: View {
                 Text(error)
             }
         }
+        .sheet(isPresented: $showingChangePassword) {
+            ChangePasswordSheet(onDismiss: { showingChangePassword = false })
+                .environment(store)
+        }
     }
     
     private func deleteAccount() async {
@@ -137,9 +157,150 @@ struct SettingsView: View {
         }
         return "An error occurred while deleting your account. Please try again."
     }
+}
+
+// MARK: - Change Password Sheet
+private struct ChangePasswordSheet: View {
+    let onDismiss: () -> Void
+    @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     
+    @State private var currentPassword = ""
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+    @State private var isUpdating = false
+    @State private var errorMessage: String?
+    @State private var didSucceed = false
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if didSucceed {
+                    VStack(spacing: 24) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundStyle(.green)
+                        Text("Password updated")
+                            .font(.title2.bold())
+                        Text("Your password has been changed successfully.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Form {
+                        Section {
+                            SecureField("Current password", text: $currentPassword)
+                                .textContentType(.password)
+                                .disabled(isUpdating)
+                            SecureField("New password", text: $newPassword)
+                                .textContentType(.newPassword)
+                                .disabled(isUpdating)
+                            SecureField("Confirm new password", text: $confirmPassword)
+                                .textContentType(.newPassword)
+                                .disabled(isUpdating)
+                        } header: {
+                            Text("Password")
+                        } footer: {
+                            Text("Use at least 6 characters for your new password.")
+                        }
+                        
+                        if let errorMessage {
+                            Section {
+                                Text(errorMessage)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Change Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                }
+                if !didSucceed {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Update") {
+                            updatePassword()
+                        }
+                        .disabled(isUpdating || !isFormValid)
+                    }
+                } else {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private var isFormValid: Bool {
+        !currentPassword.isEmpty &&
+        !newPassword.trimmingCharacters(in: .whitespaces).isEmpty &&
+        newPassword.count >= 6 &&
+        newPassword == confirmPassword
+    }
+    
+    private func updatePassword() {
+        guard isFormValid else { return }
+        isUpdating = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                try await store.authService.updatePassword(
+                    currentPassword: currentPassword,
+                    newPassword: newPassword
+                )
+                await MainActor.run {
+                    didSucceed = true
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = formatChangePasswordError(error)
+                }
+            }
+            await MainActor.run {
+                isUpdating = false
+            }
+        }
+    }
+    
+    private func formatChangePasswordError(_ error: Error) -> String {
+        let errorString = error.localizedDescription.lowercased()
+        if errorString.contains("wrong password") ||
+           errorString.contains("invalid credential") ||
+           errorString.contains("recent login") ||
+           errorString.contains("requires recent login") {
+            return "Current password is incorrect. Please try again."
+        }
+        if errorString.contains("too weak") || errorString.contains("too short") || errorString.contains("minimum") {
+            return "New password must be at least 6 characters."
+        }
+        if errorString.contains("network") || errorString.contains("connection") || errorString.contains("internet") {
+            return "Connection problem. Please check your internet and try again."
+        }
+        if errorString.contains("too many") || errorString.contains("rate limit") {
+            return "Too many attempts. Please wait a moment and try again."
+        }
+        return "Unable to update password. Please try again."
+    }
+}
+
+extension SettingsView {
     private var contactSection: some View {
         Section("Support") {
+            Button(action: { AppStoreReviewHelper.openAppStoreReviewPage() }) {
+                Label("Rate NebRatings", systemImage: "star.fill")
+            }
+            
             NavigationLink(destination: ContactFormView()) {
                 Label("Contact Us", systemImage: "envelope")
             }

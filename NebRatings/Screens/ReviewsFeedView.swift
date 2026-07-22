@@ -7,7 +7,33 @@
 
 import SwiftUI
 
+/// Standalone wrapper with its own NavigationStack. The Activity tab embeds
+/// `ReviewsFeedContent` directly (inside ITS stack) — this wrapper survives
+/// for previews and any future standalone use.
 struct ReviewsFeedView: View {
+    @State private var navigationPath = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) {
+            ReviewsFeedContent(navigationPath: $navigationPath)
+                .navigationTitle("Friends' Nebs")
+                .navigationDestination(for: Show.self) { show in
+                    ShowDetailView(show: show)
+                }
+                .navigationDestination(for: ShowWithContext.self) { ctx in
+                    ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
+                }
+                .navigationDestination(for: UserProfileDestination.self) { dest in
+                    UserProfileView(userID: dest.userID, initialProfile: dest.profile)
+                }
+        }
+    }
+}
+
+/// The friends-reviews feed WITHOUT a NavigationStack — the host provides
+/// the stack, the navigation destinations (Show, ShowWithContext,
+/// UserProfileDestination), and the title.
+struct ReviewsFeedContent: View {
     enum CategoryFilter: String, CaseIterable, Identifiable {
         case all = "All"
         case movies = "Movies"
@@ -25,42 +51,54 @@ struct ReviewsFeedView: View {
     }
 
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
+    @Binding var navigationPath: NavigationPath
     @State private var searchText = ""
     @State private var categoryFilter: CategoryFilter = .all
     @State private var minimumRating: Double = 0
     @State private var queryTask: Task<Void, Never>?
-    @State private var reviewToEdit: Review?
-    @State private var displayedReviewCount: Int = 5
-    @State private var cachedReviews: [Review] = []
-    @State private var navigationPath = NavigationPath()
+    @State private var currentReviewPage: Int = 0
+    /// Order-only snapshot of the friend-filtered feed. Captured on page load
+    /// and any time the *set* of reviews changes (new query, deletion, etc.).
+    /// Reaction counts don't trigger a re-sort — we look up the live review
+    /// (with current reactions) by id in `displayableReviews`, but the
+    /// position in the list is frozen so cards don't shuffle while you read.
+    @State private var sortedSnapshot: [Review] = []
+
+    private let reviewsPerPage = 5
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            List {
-                filterSection
-                reviewsSection
-            }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Community Nebs")
-            .navigationDestination(for: Show.self) { show in
-                ShowDetailView(show: show)
-            }
-            .searchable(text: $searchText, prompt: "Search reviews")
-            .onAppear {
-                performQuery()
-            }
-            .onChange(of: searchText) { _, _ in
-                displayedReviewCount = 5
-                performQuery()
-            }
-            .onChange(of: categoryFilter) { _, _ in
-                displayedReviewCount = 5
-                performQuery()
-            }
-            .onChange(of: minimumRating) { _, _ in
-                displayedReviewCount = 5
-                performQuery()
-            }
+        List {
+            filterSection
+            reviewsSection
+        }
+        .listStyle(.insetGrouped)
+        .searchable(text: $searchText, prompt: "Search reviews")
+        .onAppear {
+            performQuery()
+        }
+        .task {
+            // Initial sort snapshot on first load. Subsequent re-sorts
+            // happen only when the *set* of reviews changes (see below).
+            refreshSnapshot()
+        }
+        .onChange(of: searchText) { _, _ in
+            currentReviewPage = 0
+            performQuery()
+        }
+        .onChange(of: categoryFilter) { _, _ in
+            currentReviewPage = 0
+            performQuery()
+        }
+        .onChange(of: minimumRating) { _, _ in
+            currentReviewPage = 0
+            performQuery()
+        }
+        .onChange(of: store.reviews.map(\.id)) { _, _ in
+            // Re-sort when reviews are added/removed (or a new query
+            // returns a different set). Reaction-count changes leave the
+            // id list unchanged, so they don't trigger this — cards stay
+            // in place while the user is looking at them.
+            refreshSnapshot()
         }
     }
     
@@ -103,7 +141,7 @@ struct ReviewsFeedView: View {
     }
 
     private var reviewsSection: some View {
-        Section("Recent Reviews") {
+        Section {
             // Only show loading indicator if we have no reviews yet (initial load)
             if store.isQueryingReviews && displayableReviews.isEmpty {
                 HStack {
@@ -112,126 +150,120 @@ struct ReviewsFeedView: View {
                     Spacer()
                 }
                 .padding()
+            } else if !store.isQueryingReviews && store.friends.isEmpty {
+                // Distinct empty state: the feed is empty because the user has no
+                // friends at all (not because filters/search excluded everything).
+                ContentUnavailableView(
+                    "No friends yet",
+                    systemImage: "person.2",
+                    description: Text("Add friends from the Friends tab to see their reviews here.")
+                )
             } else if displayableReviews.isEmpty {
-                ContentUnavailableView("No reviews match", systemImage: "text.magnifyingglass", description: Text("Try adjusting the filters."))
+                ContentUnavailableView(
+                    "Nothing from your friends",
+                    systemImage: "text.bubble",
+                    description: Text("Try clearing filters or check back after your friends post.")
+                )
             } else {
-                // Show existing reviews even while loading new ones to prevent flicker
-                ForEach(Array(displayableReviews.prefix(displayedReviewCount))) { review in
-                    // Add ID for stable animations
-                    let show = store.show(for: review)
-                    let isOwnReview = store.currentUser?.username == review.author
-                    if let show = show {
-                        ReviewCard(review: review,
-                                   showTitle: show.title,
-                                   showCategory: show.category,
-                                   isOwnReview: isOwnReview,
-                                   onTap: {
-                                       navigationPath.append(show)
-                                   },
-                                   useLighterBackground: true
-                                   )
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if isOwnReview {
-                                Button {
-                                    store.deleteReview(review)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                        .symbolRenderingMode(.hierarchical)
-                                }
-                                .tint(Color.red.opacity(0.7))
-                                
-                                Button {
-                                    reviewToEdit = review
-                                } label: {
-                                    Label("Edit", systemImage: "pencil.line")
-                                }
-                                .tint(Color.blue.opacity(0.7))
-                            }
-                        }
-                    }
-                }
-                .listRowSeparator(.hidden)
-                .animation(.default, value: displayableReviews.count)
-                .animation(.default, value: displayedReviewCount)
-                
-                // Show loading indicator overlay if querying and we have reviews
-                if store.isQueryingReviews && !displayableReviews.isEmpty {
+                let allReviews = displayableReviews
+                let pageCount = ReviewPagination.pageCount(for: allReviews.count, pageSize: reviewsPerPage)
+
+                // Pager chevrons (only when there's more than one page)
+                if pageCount > 1 {
                     HStack {
                         Spacer()
-                        ProgressView()
-                            .padding(.vertical, 8)
-                        Spacer()
+                        ReviewPagerChevrons(pageCount: pageCount, currentPage: $currentReviewPage)
                     }
+                    .listRowSeparator(.hidden)
                 }
-                
-                // Show Less button if showing more than default (5)
-                if displayedReviewCount > 5 {
-                    Button(action: {
-                        displayedReviewCount = max(5, displayedReviewCount - 5)
-                    }) {
-                        HStack {
-                            Spacer()
-                            Text("Show Less")
-                                .font(.subheadline)
-                                .foregroundStyle(.gray)
-                            Image(systemName: "chevron.up")
-                                .font(.caption)
-                                .foregroundStyle(.gray)
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
+
+                PaginatedReviewsCarousel(
+                    reviews: allReviews,
+                    pageSize: reviewsPerPage,
+                    currentPage: $currentReviewPage
+                ) { review in
+                    feedCard(for: review)
                 }
-                
-                // Show More button if there are more reviews
-                if displayableReviews.count > displayedReviewCount {
-                    Button(action: {
-                        displayedReviewCount += 5
-                    }) {
-                        HStack {
-                            Spacer()
-                            Text("Show More")
-                                .font(.subheadline)
-                                .foregroundStyle(.gray)
-                            Image(systemName: "chevron.down")
-                                .font(.caption)
-                                .foregroundStyle(.gray)
-                            Spacer()
-                        }
-                        .padding(.vertical, 8)
-                    }
-                    .buttonStyle(.plain)
+                .listRowSeparator(.hidden)
+                .listRowInsets(EdgeInsets())
+                // NOTE: deliberately no background-query spinner row here. The
+                // cards are already on screen during a refresh; adding a spinner
+                // row below them grows the list for ~0.3s and then collapses it,
+                // which read as a height "glitch" when entering the tab.
+            }
+        } header: {
+            HStack(spacing: 8) {
+                Text("From Your Friends")
+                if !displayableReviews.isEmpty {
+                    ReviewCountBadge(count: displayableReviews.count)
+                        .textCase(nil) // Section headers force uppercase; the badge is its own thing.
                 }
+                Spacer()
             }
         }
-        .sheet(item: $reviewToEdit) { review in
-            EditReviewView(review: review)
-                .environment(store)
+    }
+
+    @ViewBuilder
+    private func feedCard(for review: Review) -> some View {
+        if let show = store.show(for: review) {
+            let authorProfile = store.cachedProfile(for: review.authorID)
+            let isOwn = store.currentUser?.username == review.author
+            ReviewCard(review: review,
+                       showTitle: show.title,
+                       showCategory: show.category,
+                       isOwnReview: isOwn,
+                       authorAvatarEmoji: authorProfile?.avatarEmoji,
+                       isFriend: store.isFriend(review.authorID),
+                       onTap: {
+                           navigationPath.append(ShowWithContext(show: show, initialSeasonFilter: review.season))
+                       },
+                       useLighterBackground: true,
+                       currentUserID: store.currentUser?.id,
+                       onReact: { emoji in
+                           Task { await store.setReaction(emoji: emoji, on: review) }
+                       },
+                       // Own review → jump to the Profile tab. Otherwise push the
+                       // author's profile. Legacy reviews without an authorID get
+                       // no handler at all, so the name isn't a dead button.
+                       onAuthorTap: isOwn
+                           ? { store.selectedTab = .profile }
+                           : review.authorID.map { authorID in
+                               { navigationPath.append(UserProfileDestination(userID: authorID, profile: authorProfile)) }
+                           })
         }
     }
     
     /// Returns the reviews that should be displayed.
-    /// When searching (searchText is not empty), returns all matching reviews.
-    /// When not searching, returns max 10 most recent reviews.
-    /// Uses cached reviews while loading to prevent flicker.
+    ///
+    /// Order is fixed by `sortedSnapshot`, which is captured on page load
+    /// and re-captured when reviews are added/removed/refreshed. The live
+    /// review (with current reactions) is looked up by id, so reaction
+    /// changes update the pills in place — but never reshuffle the cards.
+    /// Pagination is handled downstream by `PaginatedReviewsCarousel`.
     private var displayableReviews: [Review] {
-        // While querying, use cached reviews if available to prevent flicker
-        let allReviews = store.isQueryingReviews && !cachedReviews.isEmpty ? cachedReviews : store.reviews
-        
-        // Update cache when not querying
-        if !store.isQueryingReviews {
-            cachedReviews = store.reviews
-        }
-        
-        // If searching, show all matching reviews
-        if !searchText.isEmpty {
-            return allReviews
-        }
-        
-        // When not searching, limit to 10 most recent reviews
-        // Reviews are already sorted by timestamp (newest first) from the store
-        return Array(allReviews.prefix(10))
+        // Live lookup table from current store state — so reactions update
+        // in real time even though list order is frozen.
+        let liveByID: [UUID: Review] = Dictionary(
+            uniqueKeysWithValues: store.reviews.map { ($0.id, $0) }
+        )
+        // Resolve each snapshot id against the live store; drop any that
+        // have since been deleted upstream.
+        return sortedSnapshot.compactMap { liveByID[$0.id] }
+    }
+
+    /// Recompute the order snapshot from the current store state. Called
+    /// only on page load and when the underlying review set changes.
+    ///
+    /// The feed always shows friends' reviews most-recent-first. (This tab
+    /// intentionally does NOT sort by reaction count — that ordering is used
+    /// elsewhere, not here.)
+    private func refreshSnapshot() {
+        // While querying, hold onto the existing snapshot — prevents the feed
+        // from going empty mid-filter-change.
+        if store.isQueryingReviews && !sortedSnapshot.isEmpty { return }
+
+        let friendsOnly = store.reviews.filter { store.isFriend($0.authorID) }
+        sortedSnapshot = friendsOnly.sorted { $0.timestamp > $1.timestamp }
     }
 }
 

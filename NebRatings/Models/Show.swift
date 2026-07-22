@@ -238,3 +238,10 @@ extension Show {
     }()
 }
 
+// MARK: - Show Navigation Context
+/// Wrapper for navigating to ShowDetailView with optional season filter (e.g., when tapping a season-specific review).
+struct ShowWithContext: Hashable {
+    let show: Show
+    let initialSeasonFilter: Int?
+}
+

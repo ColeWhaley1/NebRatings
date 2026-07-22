@@ -13,12 +13,34 @@ import FirebaseCore
 protocol ProfileService {
     func createProfile(userID: String, name: String) async throws
     func updateProfile(userID: String, name: String) async throws
+    func updateAvatar(userID: String, emoji: String?) async throws
+    func updateBio(userID: String, bio: String?) async throws
+    /// Replaces the user's hand-picked favorite genres (max 5, enforced by UI).
+    func updateFavoriteGenres(userID: String, genres: [String]) async throws
+    /// Sets or clears (nil) the favorite movie/show. `field` is which slot.
+    func updateFavoriteTitle(userID: String, field: FavoriteTitleField, title: FavoriteTitle?) async throws
+    /// Persists the recommendation maturity level.
+    func updateContentPreference(userID: String, preference: ContentPreference) async throws
     func fetchCurrentUser() async throws -> UserProfile
     func fetchProfile(userID: String) async throws -> UserProfile?
+    func fetchProfiles(userIDs: [String]) async throws -> [UserProfile]
     func fetchReviews(for userID: String) async throws -> [Review]
     func searchUsers(byName name: String) async throws -> [UserProfile]
     func isUsernameAvailable(_ name: String, excludingUserID: String?) async throws -> Bool
     func deleteProfile(userID: String) async throws
+    func incrementCriticAggregate(userID: String, sumDelta: Double, countDelta: Int) async throws
+    func setCriticAggregate(userID: String, sum: Double, count: Int) async throws
+    /// Adjusts the per-genre review tally by the given deltas (e.g. +1 per genre on a
+    /// new review, −1 on delete). Only touches the named genre keys.
+    func incrementGenreCounts(userID: String, deltas: [String: Int]) async throws
+    /// Replaces the whole genre tally — used for the one-time backfill.
+    func setGenreCounts(userID: String, counts: [String: Int]) async throws
+}
+
+/// Which favorite slot a title write targets (Firestore field name).
+enum FavoriteTitleField: String {
+    case movie = "favoriteMovie"
+    case show = "favoriteShow"
 }
 
 struct FirebaseProfileService: ProfileService {
@@ -43,9 +65,10 @@ struct FirebaseProfileService: ProfileService {
         let normalizedName = trimmedName.lowercased()
         let profileData: [String: Any] = [
             "username": trimmedName,
-            "usernameLowercase": normalizedName  // Store lowercase version for case-insensitive uniqueness checks
+            "usernameLowercase": normalizedName,  // Store lowercase version for case-insensitive uniqueness checks
+            "joinDate": Timestamp(date: Date())
         ]
-        
+
         try await db.collection("profile").document(userID).setData(profileData)
     }
     
@@ -68,30 +91,179 @@ struct FirebaseProfileService: ProfileService {
         ])
     }
     
+    func updateAvatar(userID: String, emoji: String?) async throws {
+        let data: [String: Any] = ["avatarEmoji": emoji as Any? ?? NSNull()]
+        try await db.collection("profile").document(userID).setData(data, merge: true)
+    }
+
+    func updateBio(userID: String, bio: String?) async throws {
+        let trimmed = bio?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let data: [String: Any] = ["bio": (trimmed?.isEmpty == false ? trimmed! : NSNull()) as Any]
+        try await db.collection("profile").document(userID).setData(data, merge: true)
+    }
+
+    func updateFavoriteGenres(userID: String, genres: [String]) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "favoriteGenres": genres
+        ], merge: true)
+    }
+
+    func updateFavoriteTitle(userID: String, field: FavoriteTitleField, title: FavoriteTitle?) async throws {
+        let value: Any
+        if let title {
+            var map: [String: Any] = [
+                "id": title.id,
+                "title": title.title,
+                "category": title.category.rawValue
+            ]
+            if let posterURL = title.posterURL {
+                map["posterURL"] = posterURL
+            }
+            value = map
+        } else {
+            value = NSNull()
+        }
+        try await db.collection("profile").document(userID).setData([
+            field.rawValue: value
+        ], merge: true)
+    }
+
+    func updateContentPreference(userID: String, preference: ContentPreference) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "contentPreference": preference.rawValue
+        ], merge: true)
+    }
+
     func fetchCurrentUser() async throws -> UserProfile {
         guard let userID = Auth.auth().currentUser?.uid else {
             throw NSError(domain: "ProfileService", code: -1, userInfo: [NSLocalizedDescriptionKey: "No authenticated user"])
         }
-        
+
         let document = try await db.collection("profile").document(userID).getDocument()
-        
+
         guard document.exists,
               let data = document.data(),
-              let username = data["username"] as? String else {
+              let profile = parseProfile(id: userID, data: data) else {
             throw NSError(domain: "ProfileService", code: -2, userInfo: [NSLocalizedDescriptionKey: "Profile not found"])
         }
-        return UserProfile(id: userID, username: username)
+        return profile
     }
-    
+
     func fetchProfile(userID: String) async throws -> UserProfile? {
         let document = try await db.collection("profile").document(userID).getDocument()
-        
-        guard document.exists,
-              let data = document.data(),
-              let username = data["username"] as? String else {
+
+        guard document.exists, let data = document.data() else {
             return nil
         }
-        return UserProfile(id: userID, username: username)
+        return parseProfile(id: userID, data: data)
+    }
+
+    func fetchProfiles(userIDs: [String]) async throws -> [UserProfile] {
+        guard !userIDs.isEmpty else { return [] }
+
+        var results: [UserProfile] = []
+        // Firestore `in` queries cap at 30 values; chunk to stay safe.
+        for chunk in userIDs.chunked(into: 30) {
+            let snapshot = try await db.collection("profile")
+                .whereField(FieldPath.documentID(), in: chunk)
+                .getDocuments()
+            for document in snapshot.documents {
+                if let profile = parseProfile(id: document.documentID, data: document.data()) {
+                    results.append(profile)
+                }
+            }
+        }
+        return results
+    }
+
+    /// Single parse path for profile documents — every fetch goes through
+    /// here so new fields can't silently drift between fetch variants.
+    private func parseProfile(id: String, data: [String: Any]) -> UserProfile? {
+        guard let username = data["username"] as? String else { return nil }
+        return UserProfile(
+            id: id,
+            username: username,
+            avatarEmoji: data["avatarEmoji"] as? String,
+            criticDeltaSum: data["criticDeltaSum"] as? Double,
+            criticDeltaCount: data["criticDeltaCount"] as? Int,
+            genreCounts: parseGenreCounts(data["genreCounts"]),
+            bio: data["bio"] as? String,
+            favoriteGenres: data["favoriteGenres"] as? [String],
+            favoriteMovie: parseFavoriteTitle(data["favoriteMovie"]),
+            favoriteShow: parseFavoriteTitle(data["favoriteShow"]),
+            joinDate: (data["joinDate"] as? Timestamp)?.dateValue(),
+            contentPreference: (data["contentPreference"] as? String).flatMap { ContentPreference(rawValue: $0) }
+        )
+    }
+
+    private func parseFavoriteTitle(_ raw: Any?) -> FavoriteTitle? {
+        guard let map = raw as? [String: Any],
+              let title = map["title"] as? String else { return nil }
+        let id: Int
+        if let i = map["id"] as? Int {
+            id = i
+        } else if let n = map["id"] as? NSNumber {
+            id = n.intValue
+        } else {
+            return nil
+        }
+        let category = (map["category"] as? String).flatMap { Show.Category(rawValue: $0) } ?? .movie
+        return FavoriteTitle(
+            id: id,
+            title: title,
+            posterURL: map["posterURL"] as? String,
+            category: category
+        )
+    }
+
+    func incrementCriticAggregate(userID: String, sumDelta: Double, countDelta: Int) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "criticDeltaSum": FieldValue.increment(sumDelta),
+            "criticDeltaCount": FieldValue.increment(Int64(countDelta))
+        ], merge: true)
+    }
+
+    func setCriticAggregate(userID: String, sum: Double, count: Int) async throws {
+        try await db.collection("profile").document(userID).setData([
+            "criticDeltaSum": sum,
+            "criticDeltaCount": count
+        ], merge: true)
+    }
+
+    func incrementGenreCounts(userID: String, deltas: [String: Int]) async throws {
+        // Build per-key increments. FieldPath (not dotted-string) keys so genre
+        // names containing "." or other special characters can't corrupt the path —
+        // TMDB names like "Sci-Fi & Fantasy" / "War & Politics" stay intact.
+        var data: [AnyHashable: Any] = [:]
+        for (genre, delta) in deltas where delta != 0 {
+            data[FieldPath(["genreCounts", genre])] = FieldValue.increment(Int64(delta))
+        }
+        guard !data.isEmpty else { return }
+        try await db.collection("profile").document(userID).updateData(data)
+    }
+
+    func setGenreCounts(userID: String, counts: [String: Int]) async throws {
+        // Replace the whole map (merge:true only merges at the top level, so the
+        // genreCounts field is overwritten wholesale). Writing even an empty map
+        // marks the tally as "computed" so the one-time backfill never re-runs.
+        try await db.collection("profile").document(userID).setData([
+            "genreCounts": counts
+        ], merge: true)
+    }
+
+    /// Firestore returns map values as `NSNumber`-backed `Any`; normalize to `[String: Int]`.
+    /// Returns nil when the field is absent so callers can detect "needs backfill".
+    private func parseGenreCounts(_ raw: Any?) -> [String: Int]? {
+        guard let dict = raw as? [String: Any] else { return nil }
+        var result: [String: Int] = [:]
+        for (key, value) in dict {
+            if let intValue = value as? Int {
+                result[key] = intValue
+            } else if let number = value as? NSNumber {
+                result[key] = number.intValue
+            }
+        }
+        return result
     }
 
     func fetchReviews(for userID: String) async throws -> [Review] {
@@ -153,6 +325,12 @@ struct FirebaseProfileService: ProfileService {
                 showCategory = .movie
             }
             
+            // Parse season (optional field) - for season-specific reviews
+            let season: Int? = data["season"] as? Int
+
+            // Author's userId — this query is keyed by userId so fall back to the requested userID.
+            let authorID = (data["userId"] as? String) ?? userID
+
             // Create Review model matching the struct exactly
             let review = Review(
                 id: id,
@@ -160,9 +338,11 @@ struct FirebaseProfileService: ProfileService {
                 showTitle: showTitle,
                 showCategory: showCategory,
                 author: author,
+                authorID: authorID,
                 comment: comment,
                 nebRating: nebRating,
-                timestamp: timestamp
+                timestamp: timestamp,
+                season: season
             )
             
             reviews.append(review)
@@ -205,10 +385,14 @@ struct FirebaseProfileService: ProfileService {
             // Case-insensitive contains check - matches if search term appears anywhere in username
             let normalizedUsername = username.lowercased()
             if normalizedUsername.contains(searchTerm) {
-                users.append(UserProfile(id: document.documentID, username: username))
+                users.append(UserProfile(
+                    id: document.documentID,
+                    username: username,
+                    avatarEmoji: data["avatarEmoji"] as? String
+                ))
             }
         }
-        
+
         // Also check legacy profiles that might not have usernameLowercase field yet
         // Query by username field (case-sensitive, so try both lowercase and capitalized)
         let legacyQuery1 = db.collection("profile")
@@ -242,10 +426,14 @@ struct FirebaseProfileService: ProfileService {
             
             let normalizedUsername = username.lowercased()
             if normalizedUsername.contains(searchTerm) {
-                users.append(UserProfile(id: document.documentID, username: username))
+                users.append(UserProfile(
+                    id: document.documentID,
+                    username: username,
+                    avatarEmoji: data["avatarEmoji"] as? String
+                ))
             }
         }
-        
+
         // Remove duplicates
         var uniqueUsers: [UserProfile] = []
         var seenIDs = Set<String>()
@@ -340,8 +528,17 @@ struct FirebaseProfileService: ProfileService {
         guard FirebaseApp.app() != nil else {
             throw NSError(domain: "ProfileService", code: -1, userInfo: [NSLocalizedDescriptionKey: "Firebase is not initialized"])
         }
-        
+
         try await db.collection("profile").document(userID).delete()
+    }
+}
+
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        guard size > 0 else { return [self] }
+        return stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }
 

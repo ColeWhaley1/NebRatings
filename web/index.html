@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NebRatings — Rate movies &amp; TV. Discover what to watch. Together.</title>
+<meta name="description" content="NebRatings is the movie &amp; TV app for people with taste. Rate with nebs, discover by mood, find something the whole group will love, and see your year wrapped. Free on iOS.">
+
+<!-- Favicon / app icon -->
+<link rel="icon" type="image/png" href="/nebratings-logo.png">
+<link rel="apple-touch-icon" href="/nebratings-logo.png">
+
+<!-- Open Graph — makes shared nebratings.com links show a rich preview -->
+<meta property="og:title" content="NebRatings — Rate. Discover. Watch together.">
+<meta property="og:description" content="The movie &amp; TV app for people with taste. Rate with nebs, discover by mood, and find something the whole group will love.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nebratings.com/">
+<meta property="og:image" content="https://nebratings.com/nebratings-logo.png">
+<meta property="og:image:width" content="1024">
+<meta property="og:image:height" content="1024">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#0a0711">
+
+<link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@600,700&f[]=general-sans@400,500,600&display=swap" rel="stylesheet">
+
+<style>
+    :root {
+        --bg:        #0a0711;
+        --bg-2:      #0e0a18;
+        --surface:   #16112400;
+        --card:      #191325;
+        --card-hi:   #221a33;
+        --line:      #2c2340;
+        --text:      #f4f1fb;
+        --muted:     #a79fc0;
+        --faint:     #6f6788;
+
+        --purple:    #a855f7;
+        --violet:    #7c5cff;
+        --magenta:   #ec4899;
+        --cyan:      #34d3ee;
+        --fire:      #fb8c3c;
+
+        --font-display: 'Clash Display', Georgia, serif;
+        --font-body:    'General Sans', -apple-system, sans-serif;
+
+        --maxw: 1180px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+
+    body {
+        font-family: var(--font-body);
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+    }
+
+    /* ---------- Nebula atmosphere ---------- */
+    .sky {
+        position: fixed;
+        inset: 0;
+        z-index: -2;
+        background:
+            radial-gradient(1100px 720px at 12% -8%, rgba(124,92,255,0.30), transparent 60%),
+            radial-gradient(900px 680px at 92% 4%, rgba(236,72,153,0.22), transparent 58%),
+            radial-gradient(1200px 900px at 78% 88%, rgba(52,211,238,0.14), transparent 60%),
+            radial-gradient(800px 800px at 30% 70%, rgba(168,85,247,0.14), transparent 60%),
+            linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+    }
+    /* starfield */
+    .stars {
+        position: fixed;
+        inset: 0;
+        z-index: -1;
+        background-image:
+            radial-gradient(1.5px 1.5px at 20% 30%, rgba(255,255,255,0.7), transparent),
+            radial-gradient(1px 1px at 60% 20%, rgba(255,255,255,0.5), transparent),
+            radial-gradient(1.5px 1.5px at 80% 60%, rgba(255,255,255,0.55), transparent),
+            radial-gradient(1px 1px at 40% 80%, rgba(255,255,255,0.45), transparent),
+            radial-gradient(1px 1px at 15% 65%, rgba(255,255,255,0.4), transparent),
+            radial-gradient(1.5px 1.5px at 92% 35%, rgba(255,255,255,0.5), transparent),
+            radial-gradient(1px 1px at 50% 50%, rgba(255,255,255,0.35), transparent);
+        background-repeat: repeat;
+        background-size: 700px 700px;
+        opacity: 0.6;
+        animation: drift 120s linear infinite;
+    }
+    @keyframes drift { from { background-position: 0 0; } to { background-position: 700px 700px; } }
+
+    /* ---------- Layout ---------- */
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+
+    /* ---------- Nav ---------- */
+    nav {
+        position: sticky; top: 0; z-index: 50;
+        backdrop-filter: blur(14px);
+        background: rgba(10,7,17,0.55);
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 68px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 700; font-size: 1.28rem; letter-spacing: -0.01em; }
+    .brand .flame { font-size: 1.2rem; filter: drop-shadow(0 0 10px rgba(251,140,60,0.6)); }
+    .brand .logo { width: 30px; height: 30px; border-radius: 8px; display: block; box-shadow: 0 4px 14px -4px rgba(124,92,255,0.7); }
+    footer .brand .logo { width: 26px; height: 26px; border-radius: 7px; }
+    .nav-links { display: flex; align-items: center; gap: 30px; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+    @media (max-width: 720px) { .nav-links a:not(.pill) { display: none; } }
+
+    .pill {
+        display: inline-flex; align-items: center; gap: 8px;
+        padding: 10px 18px; border-radius: 999px;
+        background: linear-gradient(120deg, var(--violet), var(--magenta));
+        color: #fff !important; font-weight: 600; font-size: 0.92rem;
+        box-shadow: 0 8px 24px -8px rgba(124,92,255,0.7);
+        transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .pill:hover { transform: translateY(-2px); box-shadow: 0 14px 32px -8px rgba(236,72,153,0.7); }
+    .pill svg { width: 15px; height: 15px; fill: currentColor; }
+
+    /* ---------- Hero ---------- */
+    .hero { position: relative; padding: 96px 0 40px; }
+    .hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 40px; align-items: center; }
+    @media (max-width: 900px) { .hero-grid { grid-template-columns: 1fr; text-align: center; } }
+
+    .eyebrow {
+        display: inline-flex; align-items: center; gap: 8px;
+        font-size: 0.82rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+        color: var(--cyan);
+        padding: 7px 14px; border-radius: 999px;
+        background: rgba(52,211,238,0.08); border: 1px solid rgba(52,211,238,0.25);
+        margin-bottom: 26px;
+    }
+    h1 {
+        font-family: var(--font-display); font-weight: 700;
+        font-size: clamp(2.9rem, 6.4vw, 4.7rem); line-height: 1.02; letter-spacing: -0.02em;
+        margin-bottom: 22px;
+    }
+    /* Solid color (not gradient-clipped text): background-clip:text renders
+       invisible on iOS Safari, especially inside the animated (transformed)
+       hero heading. A solid color with a soft glow is legible everywhere. */
+    h1 .glow {
+        color: var(--fire);
+        text-shadow: 0 0 26px rgba(251,140,60,0.35);
+    }
+    .lede { font-size: clamp(1.05rem, 1.7vw, 1.25rem); color: var(--muted); max-width: 30em; margin-bottom: 34px; }
+    @media (max-width: 900px) { .lede { margin-left: auto; margin-right: auto; } }
+
+    .cta-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    @media (max-width: 900px) { .cta-row { justify-content: center; } }
+
+    .appstore {
+        display: inline-flex; align-items: center; gap: 12px;
+        padding: 13px 22px; border-radius: 15px;
+        background: #fff; color: #0a0711; text-decoration: none;
+        transition: transform 0.2s, box-shadow 0.25s;
+        box-shadow: 0 10px 40px -12px rgba(255,255,255,0.35);
+    }
+    .appstore:hover { transform: translateY(-3px); box-shadow: 0 18px 50px -12px rgba(196,181,253,0.5); }
+    .appstore svg { width: 26px; height: 26px; }
+    .appstore .s { font-size: 0.68rem; line-height: 1; opacity: 0.7; font-weight: 500; }
+    .appstore .b { font-family: var(--font-display); font-weight: 600; font-size: 1.18rem; line-height: 1.15; letter-spacing: -0.01em; }
+
+    .ghost { color: var(--muted); text-decoration: none; font-weight: 500; font-size: 0.98rem; padding: 12px 8px; transition: color 0.2s; }
+    .ghost:hover { color: var(--text); }
+
+    .hero-note { margin-top: 20px; font-size: 0.86rem; color: var(--faint); }
+    .hero-note b { color: var(--muted); font-weight: 600; }
+
+    /* ---------- Phone mockup ---------- */
+    .stage { display: flex; justify-content: center; perspective: 1400px; }
+    .phone {
+        position: relative; width: 300px; height: 616px; flex: none;
+        border-radius: 46px; padding: 12px;
+        background: linear-gradient(150deg, #2a2440, #100c1c);
+        box-shadow:
+            0 2px 2px rgba(255,255,255,0.08) inset,
+            0 50px 90px -30px rgba(124,92,255,0.55),
+            0 30px 60px -20px rgba(0,0,0,0.8);
+    }
+    .phone.tilt { transform: rotateY(-14deg) rotateX(4deg) rotateZ(1deg); }
+    .phone .screen {
+        position: relative; width: 100%; height: 100%;
+        border-radius: 36px; overflow: hidden;
+        background: radial-gradient(140% 100% at 50% 0%, #17121f 0%, #0a0711 60%);
+        display: flex; flex-direction: column;
+    }
+    .phone .notch {
+        position: absolute; top: 11px; left: 50%; transform: translateX(-50%);
+        width: 96px; height: 26px; background: #000; border-radius: 999px; z-index: 6;
+    }
+    .scr-pad { padding: 40px 16px 16px; overflow: hidden; height: 100%; }
+    .scr-title { font-family: var(--font-display); font-weight: 700; font-size: 1.55rem; letter-spacing: -0.01em; margin-bottom: 12px; }
+    .search-bar { height: 34px; border-radius: 11px; background: #1c1729; border: 1px solid #2a2238; display: flex; align-items: center; padding: 0 12px; color: var(--faint); font-size: 0.8rem; gap: 7px; margin-bottom: 16px; }
+
+    .scr-h { font-weight: 600; font-size: 0.86rem; margin: 4px 0 9px; }
+    .scr-sub { font-size: 0.66rem; color: var(--faint); margin-top: -6px; margin-bottom: 9px; }
+
+    /* mood chips (real app gradients) */
+    .chips { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 16px; }
+    /* Slightly smaller text + tighter padding so the longest labels
+       ("Mind-Bending", "Cozy Night") fit on one line inside the narrow
+       two-column pills on mobile without overflowing. `min-width: 0` keeps a
+       chip from pushing past its grid cell. */
+    .chip { border-radius: 999px; padding: 8px 8px; font-size: 0.68rem; font-weight: 600; letter-spacing: -0.01em; color: #fff; display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; box-shadow: 0 6px 16px -8px rgba(0,0,0,0.6); text-shadow: 0 1px 2px rgba(0,0,0,0.25); white-space: nowrap; }
+    .c-good  { background: linear-gradient(120deg, #facc15, #fb923c); }
+    .c-cozy  { background: linear-gradient(120deg, #fb923c, #f472b6); }
+    .c-mind  { background: linear-gradient(120deg, #a855f7, #6366f1); }
+    .c-date  { background: linear-gradient(120deg, #f472b6, #ef4444); }
+    .c-gem   { background: linear-gradient(120deg, #2dd4bf, #22d3ee); }
+    .c-scary { background: linear-gradient(120deg, #ef4444, #111); }
+
+    /* seasonal cards */
+    .season-row { display: flex; gap: 9px; margin-bottom: 16px; }
+    .season { flex: 1; height: 92px; border-radius: 15px; padding: 10px; color: #fff; display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 8px 18px -10px rgba(0,0,0,0.7); }
+    .season .em { font-size: 1.4rem; }
+    .season .nm { font-size: 0.72rem; font-weight: 600; line-height: 1.15; }
+    .s-summer { background: linear-gradient(140deg, #fb923c, #ef4444); }
+    .s-beach  { background: linear-gradient(140deg, #a855f7, #7c3aed); }
+    .s-cyan   { background: linear-gradient(140deg, #22d3ee, #3b82f6); }
+
+    /* poster row */
+    .posters { display: flex; gap: 9px; }
+    .poster { flex: 1; aspect-ratio: 2/3; border-radius: 11px; position: relative; overflow: hidden; background: #221a33; box-shadow: 0 8px 18px -10px rgba(0,0,0,0.7); }
+    .poster::after { content: attr(data-t); position: absolute; inset: auto 0 0 0; padding: 6px; font-size: 0.56rem; font-weight: 600; color: #fff; background: linear-gradient(transparent, rgba(0,0,0,0.8)); }
+    .p1 { background: linear-gradient(160deg, #1e293b, #0f172a); }
+    .p2 { background: linear-gradient(160deg, #7c2d12, #431407); }
+    .p3 { background: linear-gradient(160deg, #4c1d95, #2e1065); }
+
+    /* watch together cards */
+    .wt-head { display:flex; align-items:center; gap:6px; margin-bottom: 12px; }
+    .ava { width: 26px; height: 26px; border-radius: 50%; border: 2px solid #0a0711; display:flex; align-items:center; justify-content:center; font-size:0.8rem; }
+    .ava:nth-child(2){ margin-left: -10px; }
+    .seg { display:flex; background:#1c1729; border-radius:9px; padding:3px; margin-bottom:14px; }
+    .seg span { flex:1; text-align:center; font-size:0.68rem; padding:5px; border-radius:6px; color:var(--muted); }
+    .seg span.on { background:#2e2540; color:#fff; font-weight:600; }
+    .wt-card { display:flex; gap:10px; background:var(--card); border-radius:14px; padding:10px; margin-bottom:10px; border:1px solid var(--line); }
+    .wt-card .mini { width:44px; height:66px; border-radius:8px; flex:none; }
+    .wt-card .info { flex:1; min-width:0; }
+    .wt-top { display:flex; justify-content:space-between; align-items:flex-start; gap:6px; }
+    /* min-width:0 lets a long title wrap instead of squeezing the badge;
+       flex:none keeps the badge at its full one-line width. */
+    .wt-title { font-size:0.78rem; font-weight:600; min-width:0; }
+    .match { font-size:0.6rem; font-weight:700; color:#fff; padding:3px 7px; border-radius:999px; white-space:nowrap; flex:none; }
+    .m-hi { background: var(--purple); }
+    .m-mid { background: var(--magenta); }
+    .wt-reason { font-size:0.6rem; color:var(--muted); margin-top:4px; line-height:1.35; }
+
+    /* real in-app screenshot, filling a phone mockup's screen */
+    .scr-shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; z-index: 1; }
+
+    /* ---------- Poster marquee ---------- */
+    .marquee-band { padding: 44px 0 8px; overflow: hidden; }
+    .marquee-head { text-align: center; max-width: 40em; margin: 0 auto 30px; padding: 0 24px; }
+    .marquee-head .kick { color: var(--fire); font-weight: 600; font-size: 0.82rem; letter-spacing: 0.06em; text-transform: uppercase; }
+    .marquee-head h2 { font-family: var(--font-display); font-weight: 700; font-size: clamp(1.8rem, 3.6vw, 2.7rem); letter-spacing: -0.02em; margin: 10px 0 6px; line-height: 1.06; }
+    .marquee-head p { color: var(--muted); font-size: 1.02rem; }
+
+    .marquee { position: relative; display: flex; flex-direction: column; gap: 16px; -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); }
+    .track { display: flex; gap: 16px; width: max-content; will-change: transform; }
+    .track.a { animation: slide 60s linear infinite; }
+    .track.b { animation: slide 75s linear infinite reverse; }
+    .marquee:hover .track { animation-play-state: paused; }
+    @keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    .m-poster { flex: none; width: 128px; aspect-ratio: 2/3; border-radius: 12px; overflow: hidden; background: var(--card-hi); box-shadow: 0 14px 30px -16px rgba(0,0,0,0.85), 0 0 0 1px rgba(255,255,255,0.04) inset; }
+    .m-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    @media (max-width: 640px) { .m-poster { width: 100px; } }
+    @media (prefers-reduced-motion: reduce) { .track { animation: none; } .marquee { overflow-x: auto; } }
+
+    /* ---------- Sections ---------- */
+    section { position: relative; padding: 90px 0; }
+    .sec-head { max-width: 640px; margin: 0 auto 60px; text-align: center; }
+    .sec-head .kick { color: var(--cyan); font-weight:600; font-size:0.82rem; letter-spacing:0.06em; text-transform:uppercase; }
+    .sec-head h2 { font-family: var(--font-display); font-weight:700; font-size: clamp(2rem, 4vw, 3rem); letter-spacing:-0.02em; margin: 12px 0; line-height:1.05; }
+    .sec-head p { color: var(--muted); font-size:1.06rem; }
+
+    .feature { display:grid; grid-template-columns: 1fr 1fr; gap: 60px; align-items:center; margin-bottom: 40px; }
+    .feature.flip .copy { order: 2; }
+    @media (max-width: 900px) { .feature, .feature.flip { grid-template-columns: 1fr; gap: 36px; } .feature.flip .copy { order: 0; } .feature .stage { order: -1; } }
+    .feature .copy .kick { color: var(--magenta); font-weight:600; font-size:0.8rem; letter-spacing:0.06em; text-transform:uppercase; }
+    .feature .copy h3 { font-family: var(--font-display); font-weight:700; font-size: clamp(1.7rem, 3vw, 2.4rem); letter-spacing:-0.01em; margin: 12px 0 16px; line-height:1.08; }
+    .feature .copy p { color: var(--muted); font-size: 1.05rem; margin-bottom: 18px; }
+    .checks { list-style:none; display:flex; flex-direction:column; gap:11px; }
+    .checks li { display:flex; gap:11px; align-items:flex-start; font-size:0.98rem; color: var(--text); }
+    .checks li svg { width:20px; height:20px; flex:none; margin-top:2px; }
+    .phone.sm { transform: scale(0.92); }
+
+    /* ---------- Feature grid ---------- */
+    .grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+    @media (max-width: 860px){ .grid { grid-template-columns: 1fr; } }
+    .g-card {
+        background: linear-gradient(180deg, var(--card), rgba(20,15,30,0.4));
+        border: 1px solid var(--line); border-radius: 20px; padding: 28px;
+        transition: transform 0.25s, border-color 0.25s, box-shadow 0.25s;
+    }
+    .g-card:hover { transform: translateY(-5px); border-color: rgba(168,85,247,0.45); box-shadow: 0 20px 50px -24px rgba(124,92,255,0.5); }
+    .g-ico { width:48px; height:48px; border-radius:13px; display:grid; place-items:center; font-size:1.4rem; margin-bottom:16px; background: rgba(168,85,247,0.12); border:1px solid rgba(168,85,247,0.28); }
+    .g-card h4 { font-family: var(--font-display); font-weight:600; font-size:1.22rem; margin-bottom:8px; letter-spacing:-0.01em; }
+    .g-card p { color: var(--muted); font-size:0.95rem; }
+
+    /* ---------- Safety strip ---------- */
+    .safety { display:flex; gap:20px; align-items:center; background: linear-gradient(120deg, rgba(52,211,238,0.08), rgba(124,92,255,0.08)); border:1px solid var(--line); border-radius:22px; padding:28px 32px; }
+    .safety .em { font-size:2.4rem; }
+    .safety h4 { font-family:var(--font-display); font-weight:600; font-size:1.3rem; margin-bottom:6px; }
+    .safety p { color: var(--muted); font-size:0.98rem; }
+    @media (max-width:640px){ .safety { flex-direction:column; text-align:center; } }
+
+    /* ---------- Final CTA ---------- */
+    .final { text-align:center; padding: 110px 0; }
+    .final h2 { font-family:var(--font-display); font-weight:700; font-size: clamp(2.3rem, 5vw, 3.8rem); letter-spacing:-0.02em; line-height:1.03; margin-bottom: 18px; }
+    .final p { color: var(--muted); font-size:1.15rem; margin-bottom: 34px; }
+    .final .cta-row { justify-content:center; }
+
+    footer { border-top:1px solid rgba(255,255,255,0.06); padding: 40px 0; }
+    footer .wrap { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; }
+    footer .muted { color: var(--faint); font-size:0.88rem; }
+    footer .fl { display:flex; gap:24px; }
+    footer .fl a { color: var(--muted); text-decoration:none; font-size:0.9rem; }
+    footer .fl a:hover { color: var(--text); }
+
+    /* ---------- entrance animation ---------- */
+    .reveal { opacity:0; transform: translateY(24px); animation: rise 0.9s cubic-bezier(0.16,1,0.3,1) forwards; }
+    @keyframes rise { to { opacity:1; transform:none; } }
+    .d1{animation-delay:.05s}.d2{animation-delay:.15s}.d3{animation-delay:.25s}.d4{animation-delay:.35s}.d5{animation-delay:.5s}
+    .float { animation: floaty 6s ease-in-out infinite; }
+    @keyframes floaty { 0%,100%{ transform: rotateY(-14deg) rotateX(4deg) translateY(0); } 50%{ transform: rotateY(-14deg) rotateX(4deg) translateY(-14px); } }
+    @media (prefers-reduced-motion: reduce){ .reveal,.float,.stars{ animation:none; opacity:1; transform:none; } }
+
+    /* scroll reveal for sections */
+    .on-scroll { opacity:0; transform: translateY(30px); transition: opacity .8s cubic-bezier(0.16,1,0.3,1), transform .8s cubic-bezier(0.16,1,0.3,1); }
+    .on-scroll.in { opacity:1; transform:none; }
+</style>
+</head>
+<body>
+<div class="sky"></div>
+<div class="stars"></div>
+
+<!-- APPLE + APP STORE SVGs reused via <use> -->
+<svg width="0" height="0" style="position:absolute"><defs>
+    <symbol id="apple" viewBox="0 0 384 512"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></symbol>
+    <symbol id="check" viewBox="0 0 24 24"><path fill="none" stroke="#a855f7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M20 6L9 17l-5-5"/></symbol>
+</defs></svg>
+
+<!-- ===== NAV ===== -->
+<nav>
+    <div class="wrap">
+        <div class="brand"><img class="logo" src="/nebratings-logo.png" alt="NebRatings"> NebRatings</div>
+        <div class="nav-links">
+            <a href="#discover">Discover</a>
+            <a href="#together">Watch Together</a>
+            <a href="#wrapped">Wrapped</a>
+            <a class="pill" href="https://apps.apple.com/app/id6757827733" target="_blank" rel="noopener"><svg><use href="#apple"/></svg> Get the app</a>
+        </div>
+    </div>
+</nav>
+
+<!-- ===== HERO ===== -->
+<header class="hero">
+    <div class="wrap hero-grid">
+        <div class="copy">
+            <span class="eyebrow reveal d1">🎬 Movies &amp; TV, rated your way</span>
+            <h1 class="reveal d2">Drop your <span class="glow">nebs.</span><br>Find your next obsession.</h1>
+            <p class="lede reveal d3">NebRatings is the movie &amp; TV app for people with taste. Rate what you watch, discover by mood, and find something the <em>whole group</em> will actually agree on.</p>
+            <div class="cta-row reveal d4">
+                <a class="appstore" href="https://apps.apple.com/app/id6757827733" target="_blank" rel="noopener">
+                    <svg viewBox="0 0 384 512"><use href="#apple"/></svg>
+                    <span><span class="s">Download on the</span><br><span class="b">App Store</span></span>
+                </a>
+                <a class="ghost" href="#discover">See what's inside ↓</a>
+            </div>
+            <p class="hero-note reveal d4">Free on iPhone · <b>You control what you see</b> — explicit content is never recommended.</p>
+        </div>
+
+        <!-- Hero phone: Discover -->
+        <div class="stage reveal d5">
+            <div class="phone tilt float">
+                <div class="notch"></div>
+                <div class="screen">
+                    <div class="scr-pad">
+                        <div class="scr-title">Discover</div>
+                        <div class="search-bar">🔍 Search movies or TV shows</div>
+                        <div class="scr-h">What are you in the mood for?</div>
+                        <div class="chips">
+                            <div class="chip c-good">😊 Feel Good</div>
+                            <div class="chip c-cozy">🛋️ Cozy Night</div>
+                            <div class="chip c-mind">🌀 Mind-Bending</div>
+                            <div class="chip c-date">💜 Date Night</div>
+                        </div>
+                        <div class="scr-h">Right Now</div>
+                        <div class="scr-sub">Collections for this time of year</div>
+                        <div class="season-row">
+                            <div class="season s-summer"><div class="em">🍿</div><div class="nm">Summer Blockbusters</div></div>
+                            <div class="season s-beach"><div class="em">🏖️</div><div class="nm">Beach Movies</div></div>
+                        </div>
+                        <div class="scr-h">Trending This Week</div>
+                        <div class="posters">
+                            <div class="poster p1" data-t="Obsession"></div>
+                            <div class="poster p2" data-t="Toy Story 5"></div>
+                            <div class="poster p3" data-t="Severance"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- ===== POSTER MARQUEE ===== -->
+<section class="marquee-band" aria-label="Popular titles to rate">
+    <div class="marquee-head on-scroll">
+        <span class="kick">Thousands of titles</span>
+        <h2>Every film and show you love — rate them all.</h2>
+        <p>From all-time classics to this week's obsessions. Give it your nebs and see how the community stacks up.</p>
+    </div>
+    <div class="marquee">
+        <div class="track a">
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/9cqNxx0GxF0bflZmeSMuL5tnGzr.jpg" alt="The Shawshank Redemption"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/3bhkrj58Vtu7enYsRolD1fZdja1.jpg" alt="The Godfather"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/qJ2tW6WMUDux911r6m7haRef0WH.jpg" alt="The Dark Knight"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/rCzpDGLbOoPwLjy3OAm5NUPOTrC.jpg" alt="The Lord of the Rings: The Return of the King"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg" alt="Spirited Away"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/8VG8fDNiy50H4FedGwdSVUPoaJe.jpg" alt="The Green Mile"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/sF1U4EUQS8YHUYjNl3pMGNIQyr0.jpg" alt="Schindler's List"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/zhG3vKWyDRaZYoaww1UVAi29T9h.jpg" alt="12 Angry Men"></div>
+        </div>
+        <div class="track b">
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/b4wekkUaxExzOeGe7hKXzhnyXHt.jpg" alt="Dune: Part Three"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/7V0Ebks0GgpKvQ7QbLAIdX5dos4.jpg" alt="House of the Dragon"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/wLvUuBF2Yj0JmMGLUdRRVu7LvNB.jpg" alt="Toy Story 5"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/gMYZZvnkVNTqSVnVCphWbPXwWwb.jpg" alt="Silo"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/zKVgiv5qHCvCLT4A2ymJi5QeXDH.jpg" alt="Moana"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/2HKBc5UiFw8JrruHq8S1Y7TnlW0.jpg" alt="X-Men '97"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/yihdXomYb5kTeSivtFndMy5iDmf.jpg" alt="Project Hail Mary"></div>
+            <div class="m-poster"><img loading="lazy" src="https://image.tmdb.org/t/p/w342/7kRYHH9H9PjBFwz1FprbHB2AAjI.jpg" alt="Enola Holmes 3"></div>
+        </div>
+    </div>
+</section>
+
+<!-- ===== DISCOVER ===== -->
+<section id="discover">
+    <div class="wrap">
+        <div class="feature on-scroll">
+            <div class="copy">
+                <span class="kick">Discover</span>
+                <h3>Never ask "what should we watch" again.</h3>
+                <p>Pick a mood, a season, or a vibe — NebRatings does the rest. Curated rows refresh with the calendar and the community, so there's always something new worth your night.</p>
+                <ul class="checks">
+                    <li><svg><use href="#check"/></svg> 16 mood filters, from <em>Cozy Night</em> to <em>Mind-Bending</em></li>
+                    <li><svg><use href="#check"/></svg> Seasonal collections — Halloween Horror, Summer Blockbusters &amp; more</li>
+                    <li><svg><use href="#check"/></svg> Trending &amp; highest-rated, powered by real community nebs</li>
+                </ul>
+            </div>
+            <div class="stage">
+                <div class="phone sm">
+                    <div class="notch"></div>
+                    <div class="screen">
+                        <div class="scr-pad">
+                            <div class="scr-h">What are you in the mood for?</div>
+                            <div class="chips">
+                                <div class="chip c-good">😊 Feel Good</div>
+                                <div class="chip c-mind">🌀 Mind-Bending</div>
+                                <div class="chip c-gem">💎 Hidden Gems</div>
+                                <div class="chip c-scary">👻 Scary</div>
+                                <div class="chip c-date">💜 Date Night</div>
+                                <div class="chip c-cozy">🛋️ Cozy Night</div>
+                            </div>
+                            <div class="scr-h">Highest Rated This Month</div>
+                            <div class="scr-sub">Rated by the NebRatings community</div>
+                            <div class="posters">
+                                <div class="poster p3" data-t="🔥 9.4"></div>
+                                <div class="poster p1" data-t="🔥 9.2"></div>
+                                <div class="poster p2" data-t="🔥 8.9"></div>
+                            </div>
+                            <div style="height:14px"></div>
+                            <div class="scr-h">Because You Rated Interstellar Highly</div>
+                            <div class="posters">
+                                <div class="poster p1" data-t="Arrival"></div>
+                                <div class="poster p3" data-t="Dune"></div>
+                                <div class="poster p2" data-t="Gravity"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===== WATCH TOGETHER ===== -->
+<section id="together">
+    <div class="wrap">
+        <div class="feature flip on-scroll">
+            <div class="copy">
+                <span class="kick">Watch Together</span>
+                <h3>One pick everyone's happy with.</h3>
+                <p>Choose your friends and NebRatings blends everyone's ratings, favorite genres and watchlists into a shortlist — each with a match score and the reason it made the cut.</p>
+                <ul class="checks">
+                    <li><svg><use href="#check"/></svg> A <em>% match</em> for the whole group, not just you</li>
+                    <li><svg><use href="#check"/></svg> Honest reasons: "You both love Sci-Fi," "None of you have rated it yet"</li>
+                    <li><svg><use href="#check"/></svg> Save winners to a shared list in a tap</li>
+                </ul>
+            </div>
+            <div class="stage">
+                <div class="phone sm">
+                    <div class="notch"></div>
+                    <div class="screen">
+                        <div class="scr-pad">
+                            <div class="wt-head">
+                                <div class="ava" style="background:#facc15">🦖</div>
+                                <div class="ava" style="background:#a855f7">🧑</div>
+                                <div style="font-size:0.78rem;font-weight:600;margin-left:6px">Cole &amp; Caroline</div>
+                            </div>
+                            <div class="seg"><span>All</span><span class="on">Movies</span><span>TV Shows</span></div>
+                            <div class="wt-card">
+                                <div class="mini p3"></div>
+                                <div class="info">
+                                    <div class="wt-top"><div class="wt-title">Arrival</div><div class="match m-hi">96% Match</div></div>
+                                    <div class="wt-reason">• You both love Sci-Fi<br>• None of you have rated it yet</div>
+                                </div>
+                            </div>
+                            <div class="wt-card">
+                                <div class="mini p1"></div>
+                                <div class="info">
+                                    <div class="wt-top"><div class="wt-title">The Grand Budapest Hotel</div><div class="match m-mid">88% Match</div></div>
+                                    <div class="wt-reason">• Caroline loves Comedy<br>• A hidden gem for your group</div>
+                                </div>
+                            </div>
+                            <div class="wt-card">
+                                <div class="mini p2"></div>
+                                <div class="info">
+                                    <div class="wt-top"><div class="wt-title">Everything Everywhere</div><div class="match m-mid">84% Match</div></div>
+                                    <div class="wt-reason">• Rated 8.7 by the wider community</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===== COMPATIBILITY + WRAPPED (two phones) ===== -->
+<section id="wrapped">
+    <div class="wrap">
+        <div class="sec-head on-scroll">
+            <span class="kick">The fun stuff</span>
+            <h2>Taste is better shared.</h2>
+            <p>See how your taste stacks up against friends — then relive your whole year in movies and TV.</p>
+        </div>
+        <div class="feature on-scroll">
+            <div class="copy">
+                <span class="kick">Friend Compatibility</span>
+                <h3>Find your movie twin.</h3>
+                <p>Compare tastes with anyone. NebRatings scores your compatibility from shared ratings, genres and favorites — and breaks down exactly where you click and where you clash.</p>
+                <ul class="checks">
+                    <li><svg><use href="#check"/></svg> A single compatibility % with the receipts</li>
+                    <li><svg><use href="#check"/></svg> "You both love" · "You disagree on" · shared favorites</li>
+                    <li><svg><use href="#check"/></svg> Biggest rating disagreements, ranked</li>
+                </ul>
+            </div>
+            <div class="stage">
+                <div class="phone sm">
+                    <div class="notch"></div>
+                    <div class="screen">
+                        <img class="scr-shot" src="/screenshot-compatibility.jpg" alt="Compare Tastes screen in the NebRatings app, showing a 92% compatibility score">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="feature flip on-scroll" style="margin-top:20px">
+            <div class="copy">
+                <span class="kick">NebRatings Wrapped</span>
+                <h3>Your year in movies, wrapped.</h3>
+                <p>Every December, get a beautiful recap of everything you watched — top genres, hidden gems, your most-active month, your movie twin — and share gorgeous cards to your story.</p>
+                <ul class="checks">
+                    <li><svg><use href="#check"/></svg> Movies &amp; shows watched, hours, top genres</li>
+                    <li><svg><use href="#check"/></svg> Favorite of the year, biggest surprise, most controversial take</li>
+                    <li><svg><use href="#check"/></svg> Share-ready cards built for social</li>
+                </ul>
+            </div>
+            <div class="stage">
+                <div class="phone sm">
+                    <div class="notch"></div>
+                    <div class="screen">
+                        <img class="scr-shot" src="/screenshot-wrapped.jpg" alt="NebRatings Wrapped screen in the app, showing a year's stats: movies, shows, reviews and top genre">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===== FEATURE GRID ===== -->
+<section>
+    <div class="wrap">
+        <div class="sec-head on-scroll">
+            <span class="kick">And there's more</span>
+            <h2>Everything a movie night needs.</h2>
+        </div>
+        <div class="grid">
+            <div class="g-card on-scroll"><div class="g-ico">🔥</div><h4>Rate with nebs</h4><p>Score movies &amp; shows out of 10, write reviews, and react to friends with a slam of emoji.</p></div>
+            <div class="g-card on-scroll"><div class="g-ico">🎞️</div><h4>Trailers &amp; cast</h4><p>Watch trailers in-app and browse the full cast with photos — right on every title's page.</p></div>
+            <div class="g-card on-scroll"><div class="g-ico">📝</div><h4>Curated lists</h4><p>Build watchlists, keep them private or share them, and let "Surprise Me" pick for you.</p></div>
+            <div class="g-card on-scroll"><div class="g-ico">✨</div><h4>Activity feed</h4><p>See what friends are rating, listing and reviewing — the people you follow, first.</p></div>
+            <div class="g-card on-scroll"><div class="g-ico">🧭</div><h4>Season filters</h4><p>Filter any list or search to just movies or just TV, and it remembers what you like.</p></div>
+            <div class="g-card on-scroll"><div class="g-ico">👨‍👩‍👧‍👦</div><h4>Content controls</h4><p>Pick Family Friendly, General, or No Restrictions — recommendations respect it everywhere.</p></div>
+        </div>
+    </div>
+</section>
+
+<!-- ===== SAFETY ===== -->
+<section style="padding-top:0">
+    <div class="wrap">
+        <div class="safety on-scroll">
+            <div class="em">🛡️</div>
+            <div>
+                <h4>Safe by default</h4>
+                <p>NebRatings never recommends or shows explicit adult content — it's filtered out at the source. Set a maturity level that fits you or your family, and every corner of Discover follows it.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ===== FINAL CTA ===== -->
+<section class="final">
+    <div class="wrap">
+        <h2 class="on-scroll">Your next favorite is<br>one tap away.</h2>
+        <p class="on-scroll">Join the community rating what's worth watching.</p>
+        <div class="cta-row on-scroll">
+            <a class="appstore" href="https://apps.apple.com/app/id6757827733" target="_blank" rel="noopener">
+                <svg viewBox="0 0 384 512"><use href="#apple"/></svg>
+                <span><span class="s">Download on the</span><br><span class="b">App Store</span></span>
+            </a>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="wrap">
+        <div class="brand"><img class="logo" src="/nebratings-logo.png" alt="NebRatings"> NebRatings</div>
+        <div class="fl">
+            <a href="https://sites.google.com/view/nebratings/home" target="_blank" rel="noopener">Support &amp; FAQ</a>
+            <a href="/privacy.html">Privacy</a>
+            <a href="mailto:nebratings@gmail.com">Contact</a>
+        </div>
+        <div class="muted">© 2026 NebRatings. Movie &amp; TV data by TMDB.</div>
+    </div>
+</footer>
+
+<script>
+    // Scroll-reveal
+    const io = new IntersectionObserver((entries) => {
+        entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.14 });
+    document.querySelectorAll('.on-scroll').forEach((el, i) => {
+        el.style.transitionDelay = (i % 3) * 0.08 + 's';
+        io.observe(el);
+    });
+
+    // Duplicate each marquee track's posters so the -50% translate loops seamlessly.
+    document.querySelectorAll('.marquee .track').forEach(track => {
+        track.innerHTML += track.innerHTML;
+    });
+</script>
+</body>
+</html>

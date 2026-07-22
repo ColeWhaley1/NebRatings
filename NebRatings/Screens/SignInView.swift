@@ -17,6 +17,7 @@ struct SignInView: View {
     @State private var isSigningUp = false
     @State private var errorMessage: String?
     @State private var showSignUp = false
+    @State private var showingForgotPassword = false
     
     var body: some View {
         ScrollView {
@@ -149,6 +150,16 @@ struct SignInView: View {
                             .disabled(!isFormValid)
                         }
                         
+                        if !showSignUp {
+                            Button(action: { showingForgotPassword = true }) {
+                                Text("Forgot Password?")
+                                    .font(.body)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.vertical, 4)
+                            }
+                            .disabled(isSigningIn || isSigningUp)
+                        }
+                        
                         Button(action: {
                             showSignUp.toggle()
                             errorMessage = nil
@@ -170,6 +181,10 @@ struct SignInView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
+        .sheet(isPresented: $showingForgotPassword) {
+            ForgotPasswordSheet(email: $email, onDismiss: { showingForgotPassword = false })
+                .environment(store)
+        }
     }
     
     private var isFormValid: Bool {
@@ -390,6 +405,136 @@ struct SignInView: View {
         
         // Default fallback
         return "Unable to create account. Please try again"
+    }
+}
+
+// MARK: - Forgot Password Sheet
+private struct ForgotPasswordSheet: View {
+    @Binding var email: String
+    let onDismiss: () -> Void
+    @Environment(NebRatingsStore.self) private var store: NebRatingsStore
+    
+    @State private var resetEmail = ""
+    @State private var isSending = false
+    @State private var errorMessage: String?
+    @State private var didSucceed = false
+    
+    var body: some View {
+        NavigationStack {
+            Group {
+                if didSucceed {
+                    VStack(spacing: 24) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundStyle(.green)
+                        Text("Check your email")
+                            .font(.title2.bold())
+                        Text("We've sent a password reset link to \(resetEmail). Check your inbox and follow the instructions.")
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                        Text("If you don't see it, check your spam or junk folder.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    Form {
+                        Section {
+                            TextField("Email", text: $resetEmail)
+                                .textContentType(.emailAddress)
+                                .keyboardType(.emailAddress)
+                                .autocapitalization(.none)
+                                .disabled(isSending)
+                        } header: {
+                            Text("Enter your email address")
+                        } footer: {
+                            Text("We'll send you a link to reset your password.")
+                        }
+                        
+                        if let errorMessage {
+                            Section {
+                                Text(errorMessage)
+                                    .foregroundStyle(.red)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Forgot Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onDismiss()
+                    }
+                }
+                if !didSucceed {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Send Link") {
+                            sendResetLink()
+                        }
+                        .disabled(isSending || !isEmailValid)
+                    }
+                } else {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+            .onAppear {
+                if resetEmail.isEmpty {
+                    resetEmail = email
+                }
+            }
+        }
+    }
+    
+    private var isEmailValid: Bool {
+        !resetEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        resetEmail.contains("@")
+    }
+    
+    private func sendResetLink() {
+        guard isEmailValid else { return }
+        isSending = true
+        errorMessage = nil
+        
+        Task {
+            do {
+                try await store.authService.sendPasswordReset(email: resetEmail.trimmingCharacters(in: .whitespacesAndNewlines))
+                await MainActor.run {
+                    didSucceed = true
+                    email = resetEmail
+                }
+            } catch {
+                await MainActor.run {
+                    errorMessage = formatResetError(error)
+                }
+            }
+            await MainActor.run {
+                isSending = false
+            }
+        }
+    }
+    
+    private func formatResetError(_ error: Error) -> String {
+        let errorString = error.localizedDescription.lowercased()
+        if errorString.contains("user not found") || errorString.contains("invalid email") {
+            return "No account found with this email address."
+        }
+        if errorString.contains("network") || errorString.contains("connection") || errorString.contains("internet") {
+            return "Connection problem. Please check your internet and try again."
+        }
+        if errorString.contains("too many") || errorString.contains("rate limit") {
+            return "Too many attempts. Please wait a moment and try again."
+        }
+        return "Unable to send reset link. Please try again."
     }
 }
 
