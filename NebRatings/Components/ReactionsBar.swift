@@ -258,45 +258,56 @@ private struct ReactionPill: View {
 
 // MARK: - Slam entrance
 
-/// The two animated channels of the entrance slam, driven by a keyframe track.
-private struct SlamValues {
-    var scale: CGFloat = 1
-    var opacity: Double = 1
-}
-
 /// Plays the punchy entrance "slam" exactly once on appear — but ONLY for pills
 /// that should animate in (`animate == true`, i.e. a brand-new reaction). Pills
-/// already present when the bar loads take the `else` branch and render at full
-/// size with no motion, so nothing pops when a card merely scrolls into view.
+/// already present when the bar loads render at full size with no motion, so
+/// nothing pops when a card merely scrolls into view.
 ///
-/// The keyframe timeline gives the slam its character a plain spring can't:
+/// The three chained springs give the slam its character:
 ///   • scale rockets 0.4 → 1.2 (overshoot punch)
 ///   •          recoils 1.2 → 0.94 (the "impact")
 ///   •          settles 0.94 → 1.0 (bouncy)
-///   • opacity snaps 0 → 1 fast so the punch is fully visible.
+///   • opacity snaps 0 → 1 with the first stage so the punch is fully visible.
 /// Peak 1.2× is intentionally modest: it stays within the 8pt scroll inset on
 /// each side, so even the leading or trailing pill slams without being clipped.
+///
+/// Deliberately state-driven (`withAnimation` + completion) rather than
+/// `keyframeAnimator`: the trigger-less keyframeAnimator variant REPEATS its
+/// keyframes forever, which made every new reaction pop in an endless loop.
 private struct SlamEntrance: ViewModifier {
     let animate: Bool
 
+    @State private var scale: CGFloat
+    @State private var opacity: Double
+
+    init(animate: Bool) {
+        self.animate = animate
+        // New pills start collapsed and invisible; pre-existing pills start
+        // settled so they never flash.
+        _scale = State(initialValue: animate ? 0.4 : 1)
+        _opacity = State(initialValue: animate ? 0 : 1)
+    }
+
     func body(content: Content) -> some View {
-        if animate {
-            content.keyframeAnimator(initialValue: SlamValues(scale: 0.4, opacity: 0)) { view, value in
-                view
-                    .scaleEffect(value.scale)
-                    .opacity(value.opacity)
-            } keyframes: { _ in
-                KeyframeTrack(\.scale) {
-                    SpringKeyframe(1.2, duration: 0.18, spring: .snappy)
-                    SpringKeyframe(0.94, duration: 0.12, spring: .snappy)
-                    SpringKeyframe(1.0, duration: 0.16, spring: .bouncy)
-                }
-                KeyframeTrack(\.opacity) {
-                    LinearKeyframe(1.0, duration: 0.12)
+        content
+            .scaleEffect(scale)
+            .opacity(opacity)
+            .onAppear {
+                // Runs the slam once; the settled guard stops replays if the
+                // pill re-appears (e.g. scrolled off-screen and back).
+                guard animate, scale != 1 else { return }
+                withAnimation(.snappy(duration: 0.18)) {
+                    scale = 1.2
+                    opacity = 1
+                } completion: {
+                    withAnimation(.snappy(duration: 0.12)) {
+                        scale = 0.94
+                    } completion: {
+                        withAnimation(.bouncy(duration: 0.16, extraBounce: 0.1)) {
+                            scale = 1.0
+                        }
+                    }
                 }
             }
-        } else {
-            content
-        }
     }
 }

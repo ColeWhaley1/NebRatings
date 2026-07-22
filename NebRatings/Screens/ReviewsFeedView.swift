@@ -7,7 +7,33 @@
 
 import SwiftUI
 
+/// Standalone wrapper with its own NavigationStack. The Activity tab embeds
+/// `ReviewsFeedContent` directly (inside ITS stack) — this wrapper survives
+/// for previews and any future standalone use.
 struct ReviewsFeedView: View {
+    @State private var navigationPath = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $navigationPath) {
+            ReviewsFeedContent(navigationPath: $navigationPath)
+                .navigationTitle("Friends' Nebs")
+                .navigationDestination(for: Show.self) { show in
+                    ShowDetailView(show: show)
+                }
+                .navigationDestination(for: ShowWithContext.self) { ctx in
+                    ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
+                }
+                .navigationDestination(for: UserProfileDestination.self) { dest in
+                    UserProfileView(userID: dest.userID, initialProfile: dest.profile)
+                }
+        }
+    }
+}
+
+/// The friends-reviews feed WITHOUT a NavigationStack — the host provides
+/// the stack, the navigation destinations (Show, ShowWithContext,
+/// UserProfileDestination), and the title.
+struct ReviewsFeedContent: View {
     enum CategoryFilter: String, CaseIterable, Identifiable {
         case all = "All"
         case movies = "Movies"
@@ -25,12 +51,12 @@ struct ReviewsFeedView: View {
     }
 
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
+    @Binding var navigationPath: NavigationPath
     @State private var searchText = ""
     @State private var categoryFilter: CategoryFilter = .all
     @State private var minimumRating: Double = 0
     @State private var queryTask: Task<Void, Never>?
     @State private var currentReviewPage: Int = 0
-    @State private var navigationPath = NavigationPath()
     /// Order-only snapshot of the friend-filtered feed. Captured on page load
     /// and any time the *set* of reviews changes (new query, deletion, etc.).
     /// Reaction counts don't trigger a re-sort — we look up the live review
@@ -41,47 +67,38 @@ struct ReviewsFeedView: View {
     private let reviewsPerPage = 5
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
-            List {
-                filterSection
-                reviewsSection
-            }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Friends' Nebs")
-            .navigationDestination(for: Show.self) { show in
-                ShowDetailView(show: show)
-            }
-            .navigationDestination(for: ShowWithContext.self) { ctx in
-                ShowDetailView(show: ctx.show, initialSeasonFilter: ctx.initialSeasonFilter)
-            }
-            .searchable(text: $searchText, prompt: "Search reviews")
-            .onAppear {
-                performQuery()
-            }
-            .task {
-                // Initial sort snapshot on first load. Subsequent re-sorts
-                // happen only when the *set* of reviews changes (see below).
-                refreshSnapshot()
-            }
-            .onChange(of: searchText) { _, _ in
-                currentReviewPage = 0
-                performQuery()
-            }
-            .onChange(of: categoryFilter) { _, _ in
-                currentReviewPage = 0
-                performQuery()
-            }
-            .onChange(of: minimumRating) { _, _ in
-                currentReviewPage = 0
-                performQuery()
-            }
-            .onChange(of: store.reviews.map(\.id)) { _, _ in
-                // Re-sort when reviews are added/removed (or a new query
-                // returns a different set). Reaction-count changes leave the
-                // id list unchanged, so they don't trigger this — cards stay
-                // in place while the user is looking at them.
-                refreshSnapshot()
-            }
+        List {
+            filterSection
+            reviewsSection
+        }
+        .listStyle(.insetGrouped)
+        .searchable(text: $searchText, prompt: "Search reviews")
+        .onAppear {
+            performQuery()
+        }
+        .task {
+            // Initial sort snapshot on first load. Subsequent re-sorts
+            // happen only when the *set* of reviews changes (see below).
+            refreshSnapshot()
+        }
+        .onChange(of: searchText) { _, _ in
+            currentReviewPage = 0
+            performQuery()
+        }
+        .onChange(of: categoryFilter) { _, _ in
+            currentReviewPage = 0
+            performQuery()
+        }
+        .onChange(of: minimumRating) { _, _ in
+            currentReviewPage = 0
+            performQuery()
+        }
+        .onChange(of: store.reviews.map(\.id)) { _, _ in
+            // Re-sort when reviews are added/removed (or a new query
+            // returns a different set). Reaction-count changes leave the
+            // id list unchanged, so they don't trigger this — cards stay
+            // in place while the user is looking at them.
+            refreshSnapshot()
         }
     }
     
@@ -190,10 +207,11 @@ struct ReviewsFeedView: View {
     private func feedCard(for review: Review) -> some View {
         if let show = store.show(for: review) {
             let authorProfile = store.cachedProfile(for: review.authorID)
+            let isOwn = store.currentUser?.username == review.author
             ReviewCard(review: review,
                        showTitle: show.title,
                        showCategory: show.category,
-                       isOwnReview: store.currentUser?.username == review.author,
+                       isOwnReview: isOwn,
                        authorAvatarEmoji: authorProfile?.avatarEmoji,
                        isFriend: store.isFriend(review.authorID),
                        onTap: {
@@ -203,7 +221,15 @@ struct ReviewsFeedView: View {
                        currentUserID: store.currentUser?.id,
                        onReact: { emoji in
                            Task { await store.setReaction(emoji: emoji, on: review) }
-                       })
+                       },
+                       // Own review → jump to the Profile tab. Otherwise push the
+                       // author's profile. Legacy reviews without an authorID get
+                       // no handler at all, so the name isn't a dead button.
+                       onAuthorTap: isOwn
+                           ? { store.selectedTab = .profile }
+                           : review.authorID.map { authorID in
+                               { navigationPath.append(UserProfileDestination(userID: authorID, profile: authorProfile)) }
+                           })
         }
     }
     

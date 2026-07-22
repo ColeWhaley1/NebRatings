@@ -53,13 +53,21 @@ struct ListsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(list.name)
                                         .font(.headline)
-                                    
+
                                     Text("\(list.showReferences.count) \(list.showReferences.count == 1 ? "item" : "items")")
                                         .font(.subheadline)
                                         .foregroundStyle(.secondary)
                                 }
-                                
+
                                 Spacer()
+
+                                // At-a-glance visibility. Private is the norm,
+                                // so only the shared levels get an icon.
+                                if list.visibility != .privateList {
+                                    Image(systemName: list.visibility.icon)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             .padding(.vertical, 4)
                         }
@@ -180,6 +188,24 @@ struct ListsView: View {
     
 }
 
+/// Category filter for a list's contents. Selection is remembered across
+/// lists and launches via @AppStorage (single global preference, per spec).
+enum ListCategoryFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case movies = "Movies"
+    case tvShows = "TV Shows"
+
+    var id: String { rawValue }
+
+    func matches(_ reference: ShowReference) -> Bool {
+        switch self {
+        case .all: return true
+        case .movies: return reference.category == .movie
+        case .tvShows: return reference.category == .series
+        }
+    }
+}
+
 // Placeholder view for list detail - will be implemented later
 struct ListDetailView: View {
     let list: ShowList
@@ -198,7 +224,39 @@ struct ListDetailView: View {
     @State private var isEditingName = false
     @State private var editedListName = ""
     @State private var isUpdatingName = false
-    
+    /// List share sheet payload.
+    @State private var sharePayload: SharePayload?
+    /// Persisted globally — reopening any list restores the last-used filter.
+    @AppStorage("listCategoryFilter") private var categoryFilterRaw: String = ListCategoryFilter.all.rawValue
+    @State private var showingSurprisePicker = false
+    /// The Surprise Me winner waiting to be opened. Set by the sheet's
+    /// onOpen, consumed in the sheet's onDismiss so the push happens after
+    /// the dismissal animation instead of fighting it.
+    @State private var pendingSurpriseShow: Show?
+    /// Drives the actual navigation push for a Surprise Me pick.
+    @State private var surpriseDestination: Show?
+
+    private var categoryFilter: ListCategoryFilter {
+        ListCategoryFilter(rawValue: categoryFilterRaw) ?? .all
+    }
+
+    /// The list's contents under the active category filter. Everything that
+    /// renders or mutates rows (ForEach, onDelete) goes through this so row
+    /// indices always line up with what's on screen.
+    private var filteredReferences: [ShowReference] {
+        currentList.showReferences.filter { categoryFilter.matches($0) }
+    }
+
+    /// Resolved Shows for the Surprise Me picker — filtered references whose
+    /// details are already cached (loadMissingShows warms the cache on open).
+    private var surpriseCandidates: [Show] {
+        filteredReferences.compactMap { reference in
+            guard let show = store.showCache[reference.id],
+                  show.category == reference.category else { return nil }
+            return show
+        }
+    }
+
     private var currentUserID: String? {
         store.authService.getCurrentUserID()
     }
@@ -298,6 +356,46 @@ struct ListDetailView: View {
                     }
                 }
             
+            // Visibility: owner picks who can see the list; contributors see
+            // the current level read-only.
+            Section {
+                if isOwner {
+                    Picker(selection: Binding(
+                        get: { currentList.visibility },
+                        set: { newValue in
+                            var updated = currentList
+                            updated.visibility = newValue
+                            currentList = updated
+                            Task {
+                                await store.updateListVisibility(listID: currentList.id, visibility: newValue)
+                            }
+                        }
+                    )) {
+                        ForEach(ListVisibility.allCases) { level in
+                            Label(level.label, systemImage: level.icon).tag(level)
+                        }
+                    } label: {
+                        Text("Who can see this list")
+                            .font(.body)
+                    }
+                    .pickerStyle(.menu)
+                    .tint(.purple)
+                } else {
+                    HStack {
+                        Image(systemName: currentList.visibility.icon)
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24)
+                        Text(currentList.visibility.label)
+                            .font(.body)
+                        Spacer()
+                    }
+                }
+            } header: {
+                Text("Visibility")
+            } footer: {
+                Text(currentList.visibility.explanation)
+            }
+
             // Auto-remove setting: only for single-owner lists (no contributors)
             if isOwner && currentList.contributorIDs.isEmpty {
                 Section {
@@ -337,7 +435,33 @@ struct ListDetailView: View {
                         description: Text("Add shows to this list from the Discover tab.")
                     )
                 } else {
-                    ForEach(currentList.showReferences, id: \.self) { reference in
+                    if !surpriseCandidates.isEmpty {
+                        Button {
+                            showingSurprisePicker = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "dice.fill")
+                                    .foregroundStyle(.purple)
+                                    .frame(width: 24)
+                                Text("Surprise Me")
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.purple)
+                                Spacer()
+                                Image(systemName: "sparkles")
+                                    .foregroundStyle(.purple.opacity(0.7))
+                            }
+                        }
+                    }
+
+                    if filteredReferences.isEmpty {
+                        ContentUnavailableView(
+                            categoryFilter == .movies ? "No movies in this list" : "No TV shows in this list",
+                            systemImage: categoryFilter == .movies ? "film" : "tv",
+                            description: Text("Try a different filter.")
+                        )
+                    }
+
+                    ForEach(filteredReferences, id: \.self) { reference in
                         // Validate that the cached show's ID and category match the reference
                         if let show = store.showCache[reference.id], 
                            show.id == reference.id,
@@ -394,10 +518,13 @@ struct ListDetailView: View {
                     }
                     .onDelete { indexSet in
                         Task { @MainActor in
-                            // Optimistically update local state for smooth animation
+                            // Optimistically update local state for smooth animation.
+                            // Indices come from the FILTERED rows on screen, so
+                            // resolve them against filteredReferences.
                             var updatedList = currentList
+                            let visible = filteredReferences
                             let referencesToRemove = indexSet.compactMap { index in
-                                index < currentList.showReferences.count ? currentList.showReferences[index] : nil
+                                index < visible.count ? visible[index] : nil
                             }
                             
                             // Remove references from local state
@@ -425,12 +552,42 @@ struct ListDetailView: View {
                         }
                     }
                 }
+            } header: {
+                // Lives in the section header, not as a row: a row here with a
+                // custom background/insets breaks SwiftUI's rounded-corner mask
+                // for insetGrouped sections, squaring off the section's top edge
+                // (the "Surprise Me" button below it is the first real row and
+                // needs its default background intact to render the top corners).
+                if !currentList.showReferences.isEmpty {
+                    Picker("Filter", selection: $categoryFilterRaw) {
+                        ForEach(ListCategoryFilter.allCases) { filter in
+                            Text(filter.rawValue).tag(filter.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.bottom, 4)
+                }
             }
         }
         .listStyle(.insetGrouped)
         .navigationTitle(isEditingName ? "" : currentList.name)
         .navigationBarTitleDisplayMode(.large)
         .toolbar {
+            // Share — only for lists others can actually open (a private
+            // list's link would be dead for anyone but the owner).
+            if currentList.visibility != .privateList && !isEditingName {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button {
+                        Task {
+                            sharePayload = SharePayload(items: await ShareService.items(for: .list(currentList, ownerName: ownerProfile?.username)))
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(.primary)
+                    }
+                    .accessibilityLabel("Share this list")
+                }
+            }
             if isOwner {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     if isEditingName {
@@ -465,8 +622,26 @@ struct ListDetailView: View {
         .navigationDestination(for: Show.self) { show in
             ShowDetailView(show: show)
         }
+        .navigationDestination(item: $surpriseDestination) { show in
+            ShowDetailView(show: show)
+        }
         .sheet(isPresented: $showingAddContributor) {
             addContributorSheet
+        }
+        .sheet(item: $sharePayload) { payload in
+            ActivityShareSheet(items: payload.items)
+        }
+        .sheet(isPresented: $showingSurprisePicker, onDismiss: {
+            // Navigate after the sheet is fully gone — pushing while the sheet
+            // is animating away gets swallowed.
+            if let show = pendingSurpriseShow {
+                pendingSurpriseShow = nil
+                surpriseDestination = show
+            }
+        }) {
+            SurpriseMePicker(candidates: surpriseCandidates) { winner in
+                pendingSurpriseShow = winner
+            }
         }
         .task {
             // Sync with store when view first appears (only once)
@@ -479,6 +654,8 @@ struct ListDetailView: View {
             // Fetch any missing shows from the list
             await loadMissingShows()
             await loadListData()
+            // Warm posters for the whole list so rows don't load on scroll.
+            ImageCache.shared.prefetch(currentList.showReferences.compactMap { store.showCache[$0.id]?.posterURL })
         }
         .onChange(of: store.showLists) { _, _ in
             // Update current list when store changes

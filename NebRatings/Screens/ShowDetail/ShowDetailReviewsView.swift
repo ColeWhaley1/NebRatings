@@ -26,6 +26,12 @@ struct ShowDetailReviewsView: View {
     /// in real time.
     @State private var sortedReviewIDs: [UUID] = []
 
+    /// Set when the user taps a review author's avatar/name — pushes that
+    /// user's profile onto whichever NavigationStack this detail view lives
+    /// in. Item-driven (not path-driven) because this view doesn't own a
+    /// navigation path.
+    @State private var profileDestination: UserProfileDestination?
+
     var body: some View {
         let liveByID: [UUID: Review] = Dictionary(
             uniqueKeysWithValues: reviews().map { ($0.id, $0) }
@@ -77,6 +83,9 @@ struct ShowDetailReviewsView: View {
         }
         .sheet(item: $expandedReview) { review in
             ExpandedReviewView(review: review)
+        }
+        .navigationDestination(item: $profileDestination) { dest in
+            UserProfileView(userID: dest.userID, initialProfile: dest.profile)
         }
         .task {
             // Initial sort when the view appears.
@@ -144,7 +153,14 @@ struct ShowDetailReviewsView: View {
             currentUserID: store.currentUser?.id,
             onReact: { emoji in
                 Task { await store.setReaction(emoji: emoji, on: review) }
-            }
+            },
+            // Own review → jump to the Profile tab. Otherwise push the author's
+            // profile. Legacy reviews without an authorID get no handler.
+            onAuthorTap: isOwnReview
+                ? { store.selectedTab = .profile }
+                : review.authorID.map { authorID in
+                    { profileDestination = UserProfileDestination(userID: authorID, profile: authorProfile) }
+                }
         )
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if isOwnReview {

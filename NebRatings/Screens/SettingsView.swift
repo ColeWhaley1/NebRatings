@@ -20,6 +20,7 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 appearanceSection
+                contentPreferencesSection
                 accountSection
                 contactSection
                 legalSection
@@ -44,6 +45,16 @@ struct SettingsView: View {
         }
     }
     
+    private var contentPreferencesSection: some View {
+        Section {
+            ContentPreferencePicker()
+        } header: {
+            Text("Content Preferences")
+        } footer: {
+            Text("Shapes what Discover and recommendations suggest. Search always shows every title.")
+        }
+    }
+
     private var accountSection: some View {
         Section("Account") {
             if let user = store.currentUser {

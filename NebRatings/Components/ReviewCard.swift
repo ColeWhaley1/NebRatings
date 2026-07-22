@@ -49,6 +49,10 @@ struct ReviewCard: View {
     /// Invoked when the user taps a reaction pill or picks a new emoji.
     /// Pass `nil` to clear. When this is `nil`, the reactions bar is read-only.
     var onReact: ((String?) -> Void)? = nil
+    /// Invoked when the user taps the author's avatar or name — callers route
+    /// to that user's profile. `nil` leaves the identity row non-interactive
+    /// (e.g. on a profile page where the author is already on screen).
+    var onAuthorTap: (() -> Void)? = nil
     @Environment(\.colorScheme) var colorScheme
 
     /// Sourced from `ReviewPagination.cardHeight` so the card and the
@@ -80,6 +84,31 @@ struct ReviewCard: View {
         }
     }
     
+    /// Avatar + author name (+ "You" badge). Extracted so the same content can
+    /// render as a Button label (profile navigation) or as plain content.
+    private var authorIdentity: some View {
+        HStack(spacing: 8) {
+            // Avatar — another quick way to recognize who wrote the review
+            AvatarView(emoji: authorAvatarEmoji, size: 34)
+
+            // Author name with ellipsis if too long
+            HStack(spacing: 6) {
+                Text(review.author)
+                    .font(isOwnReview ? .headline.bold() : .headline)
+                    .foregroundStyle(isOwnReview ? .purple : .primary)
+                    .lineLimit(1)
+                if isOwnReview {
+                    Text("You")
+                        .font(.caption)
+                        .foregroundStyle(.purple)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.purple.opacity(0.15), in: Capsule())
+                }
+            }
+        }
+    }
+
     private var backgroundShape: some View {
         Group {
             if isOwnReview {
@@ -149,25 +178,21 @@ struct ReviewCard: View {
 
             // Author avatar, name, and rating on the same line
             HStack(spacing: 8) {
-                // Avatar — another quick way to recognize who wrote the review
-                AvatarView(emoji: authorAvatarEmoji, size: 34)
-
-                // Author name with ellipsis if too long
-                HStack(spacing: 6) {
-                    Text(review.author)
-                        .font(isOwnReview ? .headline.bold() : .headline)
-                        .foregroundStyle(isOwnReview ? .purple : .primary)
-                        .lineLimit(1)
-                    if isOwnReview {
-                        Text("You")
-                            .font(.caption)
-                            .foregroundStyle(.purple)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.purple.opacity(0.15), in: Capsule())
+                // Avatar + name are one tap target routing to the author's
+                // profile (when a handler is provided). The hit area is just
+                // the identity content — NOT the flexible gap — so card taps
+                // (expand) and double-taps (like) still land everywhere else.
+                if let onAuthorTap {
+                    Button(action: onAuthorTap) {
+                        authorIdentity
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("View \(review.author)'s profile")
+                } else {
+                    authorIdentity
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 8)
 
                 // Rating fixed to right
                 NebRatingView(rating: review.nebRating, isOwnReview: isOwnReview)

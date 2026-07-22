@@ -53,9 +53,20 @@ struct NebRatingsApp: App {
 struct AppRootView: View {
     @Environment(NebRatingsStore.self) private var store
     @State private var showSplash = true
-    
+
     var body: some View {
         Group {
+            #if DEBUG
+            if let snapshot = MarketingSnapshot.requested {
+                MarketingSnapshotView(kind: snapshot)
+            } else if showSplash {
+                SplashScreenView()
+                    .transition(.opacity)
+            } else {
+                ContentView()
+                    .transition(.opacity)
+            }
+            #else
             if showSplash {
                 SplashScreenView()
                     .transition(.opacity)
@@ -63,6 +74,7 @@ struct AppRootView: View {
                 ContentView()
                     .transition(.opacity)
             }
+            #endif
         }
         .onAppear {
             // Show splash for 0.5 seconds

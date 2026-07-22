@@ -62,6 +62,66 @@ service cloud.firestore {
                     && resource.data.userId == request.auth.uid;
     }
 
+    // Lists with visibility levels (public / friends / private).
+    //
+    // The `visibility` field gates READ access for non-members:
+    //   "public"  → any signed-in user may read
+    //   "friends" → only users with an accepted friendship with the owner
+    //   "private" (or missing, for pre-feature lists) → owner + contributors only
+    //
+    // Friendship docs live at /friendship/{uidA_uidB} where the ID is the
+    // *sorted* pair joined by "_" (see Friendship.documentID in the app).
+    // `get()` on a missing friendship doc makes the rule evaluate false,
+    // which is exactly the deny we want for non-friends.
+    match /list/{listId} {
+      function isMember() {
+        return request.auth.uid == resource.data.ownerID
+            || request.auth.uid in resource.data.get("contributorIDs", []);
+      }
+      function friendshipID() {
+        return request.auth.uid < resource.data.ownerID
+            ? request.auth.uid + "_" + resource.data.ownerID
+            : resource.data.ownerID + "_" + request.auth.uid;
+      }
+      function isFriendOfOwner() {
+        return get(/databases/$(database)/documents/friendship/$(friendshipID())).data.status == "accepted";
+      }
+
+      allow read: if request.auth != null && (
+        isMember()
+        || resource.data.get("visibility", "private") == "public"
+        || (resource.data.get("visibility", "private") == "friends" && isFriendOfOwner())
+      );
+
+      // Only the owner creates their lists.
+      allow create: if request.auth != null
+                    && request.resource.data.ownerID == request.auth.uid;
+
+      // Owner + contributors may edit; only the owner may delete.
+      allow update: if request.auth != null && isMember();
+      allow delete: if request.auth != null
+                    && resource.data.ownerID == request.auth.uid;
+    }
+
+    // Activity feed events (list creations/adds, review updates). "Rated"
+    // events are derived from /review docs client-side and never stored here.
+    // Users write only their own events; deletes cover the "list went
+    // private / was deleted" cleanup, which removes that list's events.
+    match /activity/{activityId} {
+      allow read: if request.auth != null;
+      allow create, update: if request.auth != null
+                            && request.resource.data.userID == request.auth.uid;
+      allow delete: if request.auth != null
+                    && resource.data.userID == request.auth.uid;
+    }
+
+    // Remote app configuration (seasonal collections curation, etc.).
+    // Read-only from the app; edited via the Firebase Console.
+    match /appConfig/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     // … your other collections (profiles, friendships, etc.) stay unchanged …
   }
 }

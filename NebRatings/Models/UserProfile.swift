@@ -7,10 +7,33 @@
 
 import Foundation
 
+/// A user's hand-picked favorite movie or TV show, denormalized onto the
+/// profile document (id + title + poster) so profiles render without a TMDB
+/// round-trip. Tapping through fetches full details by `id`.
+struct FavoriteTitle: Hashable, Codable {
+    let id: Int // TMDB ID
+    let title: String
+    let posterURL: String?
+    let category: Show.Category
+}
+
 struct UserProfile: Identifiable, Hashable {
     let id: String
     let username: String
     let avatarEmoji: String?
+
+    /// Short self-description shown under the username. nil/empty = hidden.
+    let bio: String?
+    /// Hand-picked favorite genres (max 5), distinct from the review-derived
+    /// `genreCounts` tally. Used for display + Discover personalization.
+    let favoriteGenres: [String]?
+    let favoriteMovie: FavoriteTitle?
+    let favoriteShow: FavoriteTitle?
+    /// Set once at profile creation. nil on profiles that predate the field.
+    let joinDate: Date?
+    /// Maturity level for recommendations. nil = never chosen (the app
+    /// prompts once and treats it as .generalAudience meanwhile).
+    let contentPreference: ContentPreference?
 
     // Persisted critic-harshness aggregate. Stored as a running sum/count so the
     // average (sum / count) can be maintained incrementally on each review write,
@@ -31,13 +54,52 @@ struct UserProfile: Identifiable, Hashable {
          avatarEmoji: String? = nil,
          criticDeltaSum: Double? = nil,
          criticDeltaCount: Int? = nil,
-         genreCounts: [String: Int]? = nil) {
+         genreCounts: [String: Int]? = nil,
+         bio: String? = nil,
+         favoriteGenres: [String]? = nil,
+         favoriteMovie: FavoriteTitle? = nil,
+         favoriteShow: FavoriteTitle? = nil,
+         joinDate: Date? = nil,
+         contentPreference: ContentPreference? = nil) {
         self.id = id
         self.username = username
         self.avatarEmoji = avatarEmoji
         self.criticDeltaSum = criticDeltaSum
         self.criticDeltaCount = criticDeltaCount
         self.genreCounts = genreCounts
+        self.bio = bio
+        self.favoriteGenres = favoriteGenres
+        self.favoriteMovie = favoriteMovie
+        self.favoriteShow = favoriteShow
+        self.joinDate = joinDate
+        self.contentPreference = contentPreference
+    }
+
+    /// Copy with the critic aggregate replaced, EVERY other field preserved.
+    /// Local mutation helpers must go through here so they can never silently
+    /// drop newer fields (this exact drift wiped contentPreference/bio/etc.
+    /// on every review write).
+    func withCriticAggregate(sum: Double, count: Int) -> UserProfile {
+        UserProfile(
+            id: id, username: username, avatarEmoji: avatarEmoji,
+            criticDeltaSum: sum, criticDeltaCount: count,
+            genreCounts: genreCounts,
+            bio: bio, favoriteGenres: favoriteGenres,
+            favoriteMovie: favoriteMovie, favoriteShow: favoriteShow,
+            joinDate: joinDate, contentPreference: contentPreference
+        )
+    }
+
+    /// Copy with the genre tally replaced, every other field preserved.
+    func withGenreCounts(_ counts: [String: Int]) -> UserProfile {
+        UserProfile(
+            id: id, username: username, avatarEmoji: avatarEmoji,
+            criticDeltaSum: criticDeltaSum, criticDeltaCount: criticDeltaCount,
+            genreCounts: counts,
+            bio: bio, favoriteGenres: favoriteGenres,
+            favoriteMovie: favoriteMovie, favoriteShow: favoriteShow,
+            joinDate: joinDate, contentPreference: contentPreference
+        )
     }
 
     /// Average (nebRating − TMDB) across comparable reviews; nil if none.

@@ -12,6 +12,11 @@ struct ExpandedReviewView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(NebRatingsStore.self) private var store
     @State private var showingEditReview = false
+    /// Pushes the author's profile inside this sheet's own NavigationStack.
+    @State private var profileDestination: UserProfileDestination?
+    /// Native share sheet payload (text + poster when available).
+    @State private var sharePayload: SharePayload?
+    @State private var isPreparingShare = false
     
     // Get the latest review from the store to ensure it's always up-to-date
     private var currentReview: Review? {
@@ -46,22 +51,45 @@ struct ExpandedReviewView: View {
                         // name the full sheet width — never crowds the rating.
                         VStack(alignment: .leading, spacing: 12) {
                             let authorProfile = store.cachedProfile(for: review.authorID)
+                            let authorTap = authorTapAction(for: review, profile: authorProfile)
 
                             // Row 1 — avatar pinned left, rating pinned right.
                             HStack(alignment: .top) {
-                                AvatarView(emoji: authorProfile?.avatarEmoji, size: 56)
+                                if let authorTap {
+                                    Button(action: authorTap) {
+                                        AvatarView(emoji: authorProfile?.avatarEmoji, size: 56)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    AvatarView(emoji: authorProfile?.avatarEmoji, size: 56)
+                                }
                                 Spacer(minLength: 12)
                                 NebRatingView(rating: review.nebRating)
                                     .fixedSize()
                             }
 
                             // Row 2 — author name, full width, left-aligned.
-                            Text(review.author)
-                                .font(.title2.bold())
-                                .foregroundStyle(.primary)
-                                .lineLimit(2)
-                                .multilineTextAlignment(.leading)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            // Tappable together with the avatar: routes to the
+                            // author's profile (or the Profile tab for your own).
+                            if let authorTap {
+                                Button(action: authorTap) {
+                                    Text(review.author)
+                                        .font(.title2.bold())
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("View \(review.author)'s profile")
+                            } else {
+                                Text(review.author)
+                                    .font(.title2.bold())
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
 
                             // Row 3 — friend badge (own line).
                             if !isOwnReview && store.isFriend(review.authorID) {
@@ -104,7 +132,7 @@ struct ExpandedReviewView: View {
                 .navigationTitle("Review")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .navigationBarLeading) {
+                    ToolbarItemGroup(placement: .navigationBarLeading) {
                         if isOwnReview {
                             Button {
                                 showingEditReview = true
@@ -113,6 +141,17 @@ struct ExpandedReviewView: View {
                                     .foregroundStyle(.primary)
                             }
                         }
+                        if isPreparingShare {
+                            ProgressView()
+                        } else {
+                            Button {
+                                Task { await prepareShare(for: review) }
+                            } label: {
+                                Image(systemName: "square.and.arrow.up")
+                                    .foregroundStyle(.primary)
+                            }
+                            .accessibilityLabel("Share review")
+                        }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Done") {
@@ -120,11 +159,17 @@ struct ExpandedReviewView: View {
                         }
                     }
                 }
+                .sheet(item: $sharePayload) { payload in
+                    ActivityShareSheet(items: payload.items)
+                }
                 .sheet(isPresented: $showingEditReview) {
                     if let review = currentReview {
                         EditReviewView(review: review)
                             .environment(store)
                     }
+                }
+                .navigationDestination(item: $profileDestination) { dest in
+                    UserProfileView(userID: dest.userID, initialProfile: dest.profile)
                 }
             } else {
                 ContentUnavailableView(
@@ -142,6 +187,32 @@ struct ExpandedReviewView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Builds the share payload via the shared ShareService (enticing copy +
+    /// nebratings.com link + poster) and presents the system share sheet.
+    private func prepareShare(for review: Review) async {
+        isPreparingShare = true
+        let show = store.show(for: review)
+        let items = await ShareService.items(for: .review(review, show: show))
+        isPreparingShare = false
+        sharePayload = SharePayload(items: items)
+    }
+
+    /// Routing for a tap on the author's avatar/name. Own review → close the
+    /// sheet and switch to the Profile tab. Someone else (with an authorID) →
+    /// push their profile inside this sheet's stack. Legacy reviews without an
+    /// authorID return nil so the identity isn't a dead button.
+    private func authorTapAction(for review: Review, profile: UserProfile?) -> (() -> Void)? {
+        if isOwnReview {
+            return {
+                dismiss()
+                store.selectedTab = .profile
+            }
+        }
+        return review.authorID.map { authorID in
+            { profileDestination = UserProfileDestination(userID: authorID, profile: profile) }
         }
     }
 }

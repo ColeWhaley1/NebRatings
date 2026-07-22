@@ -20,11 +20,21 @@ struct UserProfileView: View {
     @State private var reviews: [Review] = []
     @State private var isLoadingReviews = true
     @State private var currentReviewPage: Int = 0
+    /// Accepted-friend count; nil until loaded (or if the query fails — the
+    /// stat tile hides in that case).
+    @State private var friendCount: Int?
+    /// This user's lists the current viewer may see (public + friends-only
+    /// when the viewer is a friend).
+    @State private var visibleLists: [ShowList] = []
     /// Drives navigation when a top-3 pick is tapped. We can't use
     /// `NavigationLink` inside TopThreePicks (multiple side-by-side links
     /// in a List row trigger a SwiftUI tap-bleed bug), so the closure sets
     /// this binding and `.navigationDestination(item:)` performs the push.
     @State private var pickDestination: Show?
+    /// Pushes the taste-comparison screen.
+    @State private var showingCompatibility = false
+    /// Profile share sheet payload (nil = not presented).
+    @State private var sharePayload: SharePayload?
 
     private let reviewsPerPage = 5
 
@@ -42,6 +52,17 @@ struct UserProfileView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 headerSection
+                // Bio, favorite genres/titles, join date.
+                ProfileAboutSection(
+                    profile: profile,
+                    onOpenFavorite: { favorite in
+                        Task {
+                            if let show = await store.fetchShowDetailsByTMDBID(tmdbID: favorite.id, category: favorite.category) {
+                                pickDestination = show
+                            }
+                        }
+                    }
+                )
                 // Reads the persisted aggregate on the profile doc — no TMDB recompute on view.
                 CriticGaugeView(
                     delta: profile?.criticDelta,
@@ -55,14 +76,45 @@ struct UserProfileView: View {
                 TopThreePicks(reviews: reviews) { show in
                     pickDestination = show
                 }
+                ProfileStatsSection(
+                    reviews: reviews,
+                    publicListCount: visibleLists.isEmpty ? nil : visibleLists.count,
+                    friendCount: friendCount,
+                    onOpenHighlight: { review in
+                        if let show = store.show(for: review) {
+                            pickDestination = show
+                        }
+                    }
+                )
+                VisibleListsSection(lists: visibleLists)
                 reviewsList
             }
             .padding(16)
         }
         .navigationTitle(profile?.username ?? "Profile")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let profile {
+                    Button {
+                        Task {
+                            sharePayload = SharePayload(items: await ShareService.items(for: .profile(profile)))
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("Share \(profile.username)'s profile")
+                }
+            }
+        }
+        .sheet(item: $sharePayload) { payload in
+            ActivityShareSheet(items: payload.items)
+        }
         .navigationDestination(item: $pickDestination) { show in
             ShowDetailView(show: show)
+        }
+        .navigationDestination(isPresented: $showingCompatibility) {
+            CompatibilityView(otherUserID: userID, otherProfile: profile)
         }
         .task { await load() }
         .refreshable { await load() }
@@ -74,6 +126,18 @@ struct UserProfileView: View {
             Text(profile?.username ?? "Loading…")
                 .font(.title2.bold())
             friendActionRow
+
+            // Taste comparison — only meaningful against someone else.
+            if store.currentUser?.id != userID {
+                Button {
+                    showingCompatibility = true
+                } label: {
+                    Label("Compare Tastes", systemImage: "heart.text.square")
+                        .font(.subheadline.weight(.medium))
+                }
+                .buttonStyle(.bordered)
+                .tint(.purple)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
@@ -208,5 +272,9 @@ struct UserProfileView: View {
         isLoadingReviews = true
         reviews = await store.fetchReviews(for: userID)
         isLoadingReviews = false
+        // Social extras load after the primary content — each hides its
+        // section when unavailable, so failures degrade quietly.
+        friendCount = await store.fetchFriendCount(for: userID)
+        visibleLists = await store.fetchVisibleLists(ownerID: userID)
     }
 }

@@ -10,59 +10,86 @@ import SwiftUI
 struct SearchShowsView: View {
     @Environment(NebRatingsStore.self) private var store: NebRatingsStore
     @State private var searchText = ""
+    @State private var isSearchPresented = false
     @State private var selectedCategory: Show.Category? = nil
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Category filter picker
-                categoryFilterView
-                
-                // Results list
-                Group {
-                    if store.isSearchingShows {
-                        ProgressView("Searching...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if store.shows.isEmpty && !searchText.isEmpty {
-                        ContentUnavailableView("No results", systemImage: "magnifyingglass", description: Text("Try a different search term."))
-                    } else if store.shows.isEmpty {
-                        ContentUnavailableView("Search for shows", systemImage: "magnifyingglass", description: Text("Enter a movie or TV show name to search."))
-                    } else {
-                        List(store.shows) { show in
-                            NavigationLink(value: show) {
-                                ShowRow(show: show)
+            Group {
+                if isSearchPresented && searchText.isEmpty {
+                    // Search field is focused but empty: offer recent searches.
+                    RecentSearchesView(
+                        recents: store.recentSearches,
+                        onSelect: runSearch,
+                        onRemove: { store.removeRecentSearch($0) },
+                        onClear: { store.clearRecentSearches() }
+                    )
+                } else if searchText.isEmpty {
+                    // Browse mode: moods + curated sections.
+                    DiscoverHomeView()
+                } else {
+                    // Search mode: category filter + results.
+                    VStack(spacing: 0) {
+                        categoryFilterView
+
+                        Group {
+                            if store.isSearchingShows {
+                                ProgressView("Searching...")
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            } else if store.shows.isEmpty {
+                                ContentUnavailableView("No results", systemImage: "magnifyingglass", description: Text("Try a different search term."))
+                            } else {
+                                List(store.shows) { show in
+                                    NavigationLink(value: show) {
+                                        ShowRow(show: show)
+                                    }
+                                    // Opening a result means this query mattered —
+                                    // remember it. `recordSearch` de-dupes.
+                                    .simultaneousGesture(TapGesture().onEnded {
+                                        store.recordSearch(searchText)
+                                    })
+                                }
+                                .listStyle(.insetGrouped)
                             }
                         }
-                        .listStyle(.insetGrouped)
                     }
                 }
             }
             .navigationTitle("Discover")
-            .searchable(text: $searchText, prompt: "Search movies or TV shows")
+            .searchable(text: $searchText, isPresented: $isSearchPresented, prompt: "Search movies or TV shows")
             .onChange(of: searchText) { oldValue, newValue in
-                if newValue.isEmpty {
-                    loadTrending()
-                } else {
+                if !newValue.isEmpty {
                     performSearch()
                 }
             }
             .onChange(of: selectedCategory) { oldValue, newValue in
-                if searchText.isEmpty {
-                    loadTrending()
-                } else {
+                if !searchText.isEmpty {
                     performSearch()
                 }
             }
-            .onAppear {
-                if searchText.isEmpty {
-                    loadTrending()
-                }
+            .onSubmit(of: .search) {
+                // Return key: the user committed to this query.
+                store.recordSearch(searchText)
             }
             .navigationDestination(for: Show.self) { show in
                 ShowDetailView(show: show)
             }
+            .navigationDestination(for: Mood.self) { mood in
+                MoodResultsView(mood: mood)
+            }
+            .navigationDestination(for: SeasonalCollection.self) { collection in
+                SeasonalResultsView(collection: collection)
+            }
         }
+    }
+
+    /// Runs one of the recent searches: fills the field (which kicks off the
+    /// debounced search via `onChange`) and re-records it so it jumps to the
+    /// top of the list.
+    private func runSearch(_ query: String) {
+        searchText = query
+        store.recordSearch(query)
     }
     
     private var categoryFilterView: some View {
@@ -80,22 +107,71 @@ struct SearchShowsView: View {
     private func performSearch() {
         // Cancel previous search task
         searchTask?.cancel()
-        
+
         // Debounce search - wait 0.5 seconds after user stops typing
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-            
+
             guard !Task.isCancelled else { return }
             await store.searchShows(query: searchText, category: selectedCategory)
         }
     }
-    
-    private func loadTrending() {
-        // Cancel any pending search task
-        searchTask?.cancel()
-        
-        Task {
-            await store.loadTrendingShows(category: selectedCategory)
+}
+
+/// Recent-search list shown when the search field is focused but empty. Tap a
+/// row to re-run it, swipe to delete one, or Clear to wipe the list.
+private struct RecentSearchesView: View {
+    let recents: [String]
+    let onSelect: (String) -> Void
+    let onRemove: (String) -> Void
+    let onClear: () -> Void
+
+    var body: some View {
+        if recents.isEmpty {
+            ContentUnavailableView(
+                "No recent searches",
+                systemImage: "clock.arrow.circlepath",
+                description: Text("Movies and shows you search for will show up here.")
+            )
+        } else {
+            List {
+                Section {
+                    ForEach(recents, id: \.self) { query in
+                        Button {
+                            onSelect(query)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "clock.arrow.circlepath")
+                                    .foregroundStyle(.secondary)
+                                Text(query)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "arrow.up.left")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) {
+                                onRemove(query)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Recent Searches")
+                        Spacer()
+                        Button("Clear", action: onClear)
+                            .font(.caption.weight(.semibold))
+                            .textCase(nil)
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
         }
     }
 }

@@ -32,9 +32,12 @@ struct TMDBMovie: Codable {
     let voteCount: Int?
     let popularity: Double?
     let genreIds: [Int]?
-    
+    /// TMDB's pornographic-content flag. We hard-drop any title where this
+    /// is true, on every endpoint (belt-and-suspenders with include_adult).
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, popularity
+        case id, title, overview, popularity, adult
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -69,9 +72,11 @@ struct TMDBTV: Codable {
     let voteCount: Int?
     let popularity: Double?
     let genreIds: [Int]?
-    
+    /// TMDB's pornographic-content flag (dropped everywhere).
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, popularity
+        case id, name, overview, popularity, adult
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -83,6 +88,130 @@ struct TMDBTV: Codable {
 
 // MARK: - Genre Model
 struct TMDBGenre: Codable {
+    let id: Int
+    let name: String
+}
+
+// MARK: - Video (Trailer) Models
+
+struct VideosResponse: Codable {
+    let id: Int?
+    let results: [TMDBVideo]
+}
+
+struct TMDBVideo: Codable {
+    let id: String
+    let key: String
+    let name: String
+    let site: String
+    let type: String
+    let official: Bool?
+    let publishedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, name, site, type, official
+        case publishedAt = "published_at"
+    }
+}
+
+/// App-facing trailer, already filtered to YouTube and sorted by priority
+/// (official trailer → trailer → teaser). `youtubeKey` is the YouTube video id.
+struct Trailer: Identifiable, Hashable {
+    let id: String
+    let youtubeKey: String
+    let name: String
+    /// TMDB type: "Trailer" or "Teaser".
+    let type: String
+    let isOfficial: Bool
+
+    /// YouTube's own thumbnail CDN — no extra TMDB call needed.
+    var thumbnailURL: String {
+        "https://img.youtube.com/vi/\(youtubeKey)/hqdefault.jpg"
+    }
+
+    /// Fallback: open in the YouTube app / Safari. In-app playback builds an
+    /// iframe wrapper from `youtubeKey` (see YouTubeEmbedView) — loading an
+    /// embed URL directly fails YouTube's origin check (error 153).
+    var watchURL: URL? {
+        URL(string: "https://www.youtube.com/watch?v=\(youtubeKey)")
+    }
+}
+
+// MARK: - Credits (cast)
+
+struct CreditsResponse: Codable {
+    let cast: [TMDBCastMember]
+}
+
+struct TMDBCastMember: Codable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profilePath: String?
+    let order: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, character, order
+        case profilePath = "profile_path"
+    }
+}
+
+/// App-facing cast member with a resolved headshot URL. Fetched on demand
+/// (the cast screen), never with the detail page itself.
+struct CastMember: Identifiable, Hashable {
+    let id: Int
+    let name: String
+    let character: String?
+    let profileURL: String?
+    let order: Int
+}
+
+// MARK: - Person combined credits (actor filmography)
+
+/// `/person/{id}/combined_credits` — an actor's movie *and* TV appearances in
+/// one payload. We only consume the `cast` array (roles they acted in).
+struct PersonCreditsResponse: Codable {
+    let cast: [PersonCredit]
+}
+
+/// One title an actor appeared in. Movies carry `title`/`release_date`; TV
+/// carries `name`/`first_air_date`. `media_type` disambiguates the two so we
+/// can build the right `Show.Category`.
+struct PersonCredit: Codable {
+    let id: Int
+    let mediaType: String
+    let title: String?
+    let name: String?
+    let character: String?
+    let overview: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let releaseDate: String?
+    let firstAirDate: String?
+    let voteAverage: Double?
+    let popularity: Double?
+    let genreIds: [Int]?
+    let adult: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, name, character, overview, popularity, adult
+        case mediaType = "media_type"
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+        case releaseDate = "release_date"
+        case firstAirDate = "first_air_date"
+        case voteAverage = "vote_average"
+        case genreIds = "genre_ids"
+    }
+}
+
+// MARK: - Keyword Search
+
+struct KeywordSearchResponse: Codable {
+    let results: [TMDBKeyword]
+}
+
+struct TMDBKeyword: Codable {
     let id: Int
     let name: String
 }
@@ -127,9 +256,10 @@ struct MovieDetailsResponse: Codable {
     let voteAverage: Double?
     let voteCount: Int?
     let genres: [TMDBGenre]?
-    
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, title, overview, tagline, genres
+        case id, title, overview, tagline, genres, adult
         case releaseDate = "release_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
@@ -151,9 +281,10 @@ struct TVDetailsResponse: Codable {
     let voteCount: Int?
     let genres: [TMDBGenre]?
     let numberOfSeasons: Int?
-    
+    let adult: Bool?
+
     enum CodingKeys: String, CodingKey {
-        case id, name, overview, tagline, genres
+        case id, name, overview, tagline, genres, adult
         case firstAirDate = "first_air_date"
         case posterPath = "poster_path"
         case backdropPath = "backdrop_path"
