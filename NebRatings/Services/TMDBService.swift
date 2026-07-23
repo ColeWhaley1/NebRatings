@@ -852,14 +852,43 @@ struct TMDBService: CatalogService {
             let credits = try JSONDecoder().decode(PersonCreditsResponse.self, from: data)
             var seenIDs = Set<Int>()
             return credits.cast
+                .filter { isHeadlineCredit($0) }
+                // Rank by vote count, not TMDB `popularity`. Popularity is a
+                // rolling activity metric, so a nightly talk show the actor
+                // guested on once outranks their biggest films. Vote count
+                // tracks how many people actually rated the title, which is a
+                // much better proxy for "their biggest work".
+                .sorted {
+                    ($0.voteCount ?? 0, $0.popularity ?? 0) > ($1.voteCount ?? 0, $1.popularity ?? 0)
+                }
                 .compactMap { convertPersonCreditToShow($0) }
                 .filter { seenIDs.insert($0.id).inserted }
-                .sorted { $0.popularity > $1.popularity }
                 .prefix(40)
                 .map { $0 }
         } catch {
             throw TMDBError.decodingError
         }
+    }
+
+    /// TV genres that aren't an actor's body of work — talk shows, news,
+    /// reality and soaps. An actor guesting on a late-night show picks up that
+    /// show's whole credit, which would otherwise crowd out their films.
+    private static let nonWorkTVGenreIDs: Set<Int> = [
+        10767, // Talk
+        10763, // News
+        10764, // Reality
+        10766  // Soap
+    ]
+
+    /// Keeps only movie/TV acting credits that represent real work.
+    private func isHeadlineCredit(_ credit: PersonCredit) -> Bool {
+        guard credit.mediaType == "movie" || credit.mediaType == "tv" else { return false }
+        if credit.adult == true { return false }
+        if let genreIDs = credit.genreIds,
+           genreIDs.contains(where: { Self.nonWorkTVGenreIDs.contains($0) }) {
+            return false
+        }
+        return true
     }
 
     /// Converts one combined-credits entry to a `Show`. Returns nil for

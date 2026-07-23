@@ -139,10 +139,17 @@ struct DiscoverHomeView: View {
                                 Text(mood.name)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                                     .shadow(color: .black.opacity(0.25), radius: 1, y: 1)
+                                Spacer(minLength: 0)
                             }
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
+                            // Uniform width with the emoji/name pinned left, so
+                            // the two rows read as a tidy aligned grid instead of
+                            // ragged content-sized pills.
+                            .frame(width: 176, alignment: .leading)
                             .background(
                                 LinearGradient(
                                     colors: moodColors(mood).map { $0.opacity(0.85) },

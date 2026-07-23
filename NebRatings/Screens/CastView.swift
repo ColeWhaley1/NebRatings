@@ -15,6 +15,12 @@ struct CastView: View {
     @Environment(NebRatingsStore.self) private var store
     @State private var cast: [CastMember] = []
     @State private var isLoading = true
+    /// Drives the push to an actor's filmography. Using `navigationDestination(item:)`
+    /// here (rather than a value-based `for:` destination) because CastView is
+    /// itself presented via `navigationDestination(isPresented:)`, and a nested
+    /// `for:` destination inside a presented view doesn't reliably resolve —
+    /// it flashes the missing-destination placeholder and pops straight back.
+    @State private var selectedMember: CastMember?
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: 14)]
 
@@ -34,7 +40,9 @@ struct CastView: View {
                     LazyVGrid(columns: columns, spacing: 18) {
                         ForEach(cast) { member in
                             // Tapping an actor opens their filmography.
-                            NavigationLink(value: member) {
+                            Button {
+                                selectedMember = member
+                            } label: {
                                 castCard(member)
                             }
                             .buttonStyle(.plain)
@@ -47,7 +55,7 @@ struct CastView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle("Cast")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: CastMember.self) { member in
+        .navigationDestination(item: $selectedMember) { member in
             ActorFilmographyView(person: member)
         }
         .task {

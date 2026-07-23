@@ -44,11 +44,6 @@ struct SearchShowsView: View {
                                     NavigationLink(value: show) {
                                         ShowRow(show: show)
                                     }
-                                    // Opening a result means this query mattered —
-                                    // remember it. `recordSearch` de-dupes.
-                                    .simultaneousGesture(TapGesture().onEnded {
-                                        store.recordSearch(searchText)
-                                    })
                                 }
                                 .listStyle(.insetGrouped)
                             }
@@ -109,11 +104,18 @@ struct SearchShowsView: View {
         searchTask?.cancel()
 
         // Debounce search - wait 0.5 seconds after user stops typing
+        let query = searchText
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
             guard !Task.isCancelled else { return }
-            await store.searchShows(query: searchText, category: selectedCategory)
+            await store.searchShows(query: query, category: selectedCategory)
+
+            // A settled query that returned something is a real search worth
+            // remembering. `recordSearch` de-dupes and requires ≥2 chars, so
+            // this doesn't store every keystroke-pause.
+            guard !Task.isCancelled, !store.shows.isEmpty else { return }
+            store.recordSearch(query)
         }
     }
 }

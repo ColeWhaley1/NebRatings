@@ -189,6 +189,7 @@ struct PersonCredit: Codable {
     let releaseDate: String?
     let firstAirDate: String?
     let voteAverage: Double?
+    let voteCount: Int?
     let popularity: Double?
     let genreIds: [Int]?
     let adult: Bool?
@@ -201,6 +202,7 @@ struct PersonCredit: Codable {
         case releaseDate = "release_date"
         case firstAirDate = "first_air_date"
         case voteAverage = "vote_average"
+        case voteCount = "vote_count"
         case genreIds = "genre_ids"
     }
 }

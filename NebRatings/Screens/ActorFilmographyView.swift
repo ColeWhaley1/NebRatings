@@ -17,8 +17,16 @@ struct ActorFilmographyView: View {
     @Environment(NebRatingsStore.self) private var store
     @State private var titles: [Show] = []
     @State private var isLoading = true
+    /// Drives the push to a tapped title. Uses `navigationDestination(item:)`
+    /// for the same reason CastView does: this screen is reached through
+    /// binding-driven pushes, and a value-based `NavigationLink` at this depth
+    /// resolves against the far-away root destination instead of pushing a new
+    /// detail page — which just re-routed to the page already on screen.
+    @State private var selectedShow: Show?
 
-    private let columns = [GridItem(.adaptive(minimum: 100), spacing: 14)]
+    // `.top` so a one-line title next to a two-line one doesn't centre its
+    // card and knock the posters out of horizontal alignment.
+    private let columns = [GridItem(.adaptive(minimum: 100), spacing: 14, alignment: .top)]
 
     var body: some View {
         Group {
@@ -35,7 +43,9 @@ struct ActorFilmographyView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 18) {
                         ForEach(titles) { show in
-                            NavigationLink(value: show) {
+                            Button {
+                                selectedShow = show
+                            } label: {
                                 posterCard(show)
                             }
                             .buttonStyle(.plain)
@@ -48,6 +58,9 @@ struct ActorFilmographyView: View {
         .background(Color(.systemGroupedBackground))
         .navigationTitle(person.name)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationDestination(item: $selectedShow) { show in
+            ShowDetailView(show: show)
+        }
         .task {
             titles = await store.fetchFilmography(personID: person.id)
             // Warm posters up front so the grid fills without pop-in.
@@ -82,11 +95,14 @@ struct ActorFilmographyView: View {
                     .strokeBorder(Color(uiColor: .separator), lineWidth: 0.5)
             )
 
+            // `reservesSpace` keeps every card exactly two title lines tall, so
+            // one- and two-line titles don't produce ragged card heights.
             Text(show.title)
                 .font(.caption.bold())
                 .foregroundStyle(.primary)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(String(show.year))
                 .font(.caption2)
                 .foregroundStyle(.secondary)
