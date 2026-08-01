@@ -39,14 +39,14 @@ struct DiscoverHomeView: View {
                     ShowPosterRow(title: "Trending This Week", shows: feed.trendingWeek)
 
                     rankedRow(
-                        title: "Highest Rated This Month",
+                        title: "Highest Rated in the Past Month",
                         subtitle: "Rated by the NebRatings community",
                         ranked: feed.highestRatedMonth,
                         badge: { String(format: "🔥 %.1f", $0.averageRating) }
                     )
 
                     rankedRow(
-                        title: "Most Reviewed This Month",
+                        title: "Most Reviewed in the Past Month",
                         subtitle: "What the community is talking about",
                         ranked: feed.mostReviewedMonth,
                         badge: { "\($0.reviewCount) \($0.reviewCount == 1 ? "review" : "reviews")" }

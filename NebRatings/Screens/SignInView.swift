@@ -18,6 +18,10 @@ struct SignInView: View {
     @State private var errorMessage: String?
     @State private var showSignUp = false
     @State private var showingForgotPassword = false
+    // EULA agreement gate (App Store Guideline 1.2 for user-generated content).
+    @State private var hasAgreedToTerms = false
+    @State private var showingTerms = false
+    @State private var showingPrivacy = false
     
     var body: some View {
         ScrollView {
@@ -127,6 +131,38 @@ struct SignInView: View {
                                 .disabled(isSigningIn || isSigningUp)
                         }
                         
+                        // Required agreement to the Terms of Use (EULA) at
+                        // registration. The EULA states our zero-tolerance
+                        // policy for objectionable content and abusive users
+                        // (App Store Guideline 1.2). Shown only on sign up —
+                        // returning users already agreed when they registered.
+                        if showSignUp {
+                            HStack(alignment: .top, spacing: 10) {
+                                Button {
+                                    hasAgreedToTerms.toggle()
+                                } label: {
+                                    Image(systemName: hasAgreedToTerms ? "checkmark.square.fill" : "square")
+                                        .font(.title3)
+                                        .foregroundStyle(hasAgreedToTerms ? .purple : .secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(hasAgreedToTerms ? "Agreed to terms" : "Agree to terms")
+                                .disabled(isSigningIn || isSigningUp)
+
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("I agree to the Terms of Use (EULA) and Privacy Policy, and understand there is zero tolerance for objectionable content or abusive behavior.")
+                                        .font(.footnote)
+                                        .foregroundStyle(.secondary)
+                                    HStack(spacing: 16) {
+                                        Button("Terms of Use (EULA)") { showingTerms = true }
+                                        Button("Privacy Policy") { showingPrivacy = true }
+                                    }
+                                    .font(.footnote.weight(.semibold))
+                                    .tint(.purple)
+                                }
+                            }
+                        }
+
                         if isSigningIn || isSigningUp {
                             ProgressView()
                                 .padding(.top, 16)
@@ -185,16 +221,37 @@ struct SignInView: View {
             ForgotPasswordSheet(email: $email, onDismiss: { showingForgotPassword = false })
                 .environment(store)
         }
+        .sheet(isPresented: $showingTerms) {
+            NavigationStack {
+                TermsAndConditionsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingTerms = false }
+                        }
+                    }
+            }
+        }
+        .sheet(isPresented: $showingPrivacy) {
+            NavigationStack {
+                PrivacyPolicyView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showingPrivacy = false }
+                        }
+                    }
+            }
+        }
     }
     
     private var isFormValid: Bool {
         let emailValid = !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                         email.contains("@")
         let passwordValid = !password.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        
+
         if showSignUp {
+            // Registration also requires agreeing to the EULA.
             let nameValid = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            return emailValid && passwordValid && nameValid
+            return emailValid && passwordValid && nameValid && hasAgreedToTerms
         } else {
             return emailValid && passwordValid
         }
@@ -226,6 +283,14 @@ struct SignInView: View {
     
     private func signUp() {
         guard isFormValid else { return }
+
+        // Filter objectionable usernames before creating the account
+        // (App Store Guideline 1.2).
+        if ObjectionableContent.isObjectionable(name) {
+            errorMessage = "Please choose a username without offensive language."
+            return
+        }
+
         isSigningUp = true
         errorMessage = nil
         

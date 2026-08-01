@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>TMDB_API_READ_ACCESS_TOKEN</key>
 	<string>$(TMDB_API_READ_ACCESS_TOKEN)</string>
 	<key>APP_STORE_ID</key>

@@ -71,7 +71,9 @@ private struct ActivityFeedContent: View {
     /// Only friends' events — the viewer's own activity is deliberately
     /// excluded (the feed is for keeping up with other people, not yourself).
     private var friendActivities: [Activity] {
-        activities.filter { store.isFriend($0.userID) }
+        // Blocked users are dropped instantly (Guideline 1.2), independent of
+        // the friendship refresh that block also triggers.
+        activities.filter { store.isFriend($0.userID) && !store.isBlocked($0.userID) }
     }
 
     /// "What the community is rating right now" — the shows drawing the most

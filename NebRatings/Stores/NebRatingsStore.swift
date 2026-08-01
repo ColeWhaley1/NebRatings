@@ -75,6 +75,19 @@ final class NebRatingsStore {
     private let friendshipService: FriendshipService
     private let activityService: ActivityService
     private let appConfigService: AppConfigService
+    private let moderationService: ModerationService
+
+    // MARK: - Moderation (App Store Guideline 1.2)
+
+    /// User IDs the current user has blocked. Their reviews are filtered out of
+    /// every feed instantly, and the block is persisted locally so it survives
+    /// relaunches (plus mirrored to Firestore so the developer is notified).
+    private(set) var blockedUserIDs: Set<String> = []
+    /// Review IDs (UUID strings) the current user has reported. Reported reviews
+    /// are hidden from the reporter's feeds immediately, pending developer review.
+    private(set) var reportedReviewIDs: Set<String> = []
+    private let blockedUserIDsKey = "blockedUserIDs"
+    private let reportedReviewIDsKey = "reportedReviewIDs"
 
     // Cache for searched shows to avoid re-fetching
     var showCache: [Int: Show] = [:]
@@ -109,7 +122,8 @@ final class NebRatingsStore {
          contactService: ContactService = FirebaseContactService(),
          friendshipService: FriendshipService = FirebaseFriendshipService(),
          activityService: ActivityService = FirebaseActivityService(),
-         appConfigService: AppConfigService = FirebaseAppConfigService())
+         appConfigService: AppConfigService = FirebaseAppConfigService(),
+         moderationService: ModerationService = FirebaseModerationService())
     {
         self.catalogService = catalogService
         self.reviewService = reviewService
@@ -119,9 +133,11 @@ final class NebRatingsStore {
         self.contactService = contactService
         self.friendshipService = friendshipService
         self.activityService = activityService
+        self.moderationService = moderationService
         self.appConfigService = appConfigService
 
         loadRecentSearches()
+        loadModerationState()
 
         // Set up auth state listener first - it will fire immediately with current state
         // This ensures we properly restore authentication from Firebase's persisted tokens
@@ -1519,9 +1535,106 @@ final class NebRatingsStore {
     }
 
     func reviews(for show: Show) -> [Review] {
-        // Filter reviews for the specific show
-        // This method is called from views, so it will trigger updates when reviews array changes
-        return reviews.filter { $0.showID == show.id }
+        // Filter reviews for the specific show, hiding any the viewer has
+        // reported or whose author they've blocked (Guideline 1.2).
+        return reviews.filter { $0.showID == show.id && isReviewVisible($0) }
+    }
+
+    // MARK: - Moderation (report / block)
+
+    private func loadModerationState() {
+        blockedUserIDs = Set(UserDefaults.standard.stringArray(forKey: blockedUserIDsKey) ?? [])
+        reportedReviewIDs = Set(UserDefaults.standard.stringArray(forKey: reportedReviewIDsKey) ?? [])
+    }
+
+    /// True if the current user has blocked `userID`.
+    func isBlocked(_ userID: String?) -> Bool {
+        guard let userID else { return false }
+        return blockedUserIDs.contains(userID)
+    }
+
+    /// True if the current user reported this review.
+    func isReviewReported(_ review: Review) -> Bool {
+        reportedReviewIDs.contains(review.id.uuidString)
+    }
+
+    /// Whether a review should be rendered at all. Only *reported* reviews are
+    /// removed outright — a reporter shouldn't see content they flagged. Blocked
+    /// authors' reviews are still rendered, but as a blurred placeholder
+    /// (`BlockedReviewCard`) so the name and text are unreadable while the
+    /// viewer keeps context that they blocked someone (Guideline 1.2). Own
+    /// reviews always show.
+    func isReviewVisible(_ review: Review) -> Bool {
+        if review.authorID == currentUser?.id { return true }
+        return !isReviewReported(review)
+    }
+
+    /// Filters a list of reviews down to the ones the current user should see.
+    func visibleReviews(_ input: [Review]) -> [Review] {
+        input.filter { isReviewVisible($0) }
+    }
+
+    /// Reports a review as objectionable: hides it from the reporter instantly
+    /// and notifies the developer (Firestore `reports`) to act within 24 hours.
+    func reportReview(_ review: Review, reason: String = "Objectionable content") {
+        reportedReviewIDs.insert(review.id.uuidString)
+        UserDefaults.standard.set(Array(reportedReviewIDs), forKey: reportedReviewIDsKey)
+        let reporterID = currentUser?.id ?? "unknown"
+        Task {
+            try? await moderationService.reportReview(
+                reviewID: review.id.uuidString,
+                authorID: review.authorID,
+                authorName: review.author,
+                reporterID: reporterID,
+                reason: reason
+            )
+        }
+    }
+
+    /// Blocks a user: removes all their content from the current user's feeds
+    /// instantly, drops any friendship, and notifies the developer.
+    func blockUser(userID: String, username: String, reason: String? = nil) {
+        guard !userID.isEmpty, userID != currentUser?.id else { return }
+        blockedUserIDs.insert(userID)
+        UserDefaults.standard.set(Array(blockedUserIDs), forKey: blockedUserIDsKey)
+
+        // Drop any existing friendship so they can't see each other either.
+        if let myID = currentUser?.id, isFriend(userID) {
+            Task { try? await friendshipService.deleteRelationship(currentUserID: myID, otherUserID: userID) }
+            relationships.removeAll { $0.members.contains(userID) }
+        }
+
+        let blockerID = currentUser?.id ?? "unknown"
+        Task {
+            try? await moderationService.blockUser(
+                blockerID: blockerID,
+                blockedID: userID,
+                blockedName: username,
+                reason: reason
+            )
+        }
+    }
+
+    /// Reverses a block (from Settings) — restores the user's content.
+    func unblockUser(userID: String) {
+        blockedUserIDs.remove(userID)
+        UserDefaults.standard.set(Array(blockedUserIDs), forKey: blockedUserIDsKey)
+    }
+
+    /// Reports a user's profile as abusive (no local hide beyond blocking) —
+    /// notifies the developer to review the account.
+    func reportUser(userID: String, username: String, reason: String = "Reported user profile") {
+        guard !userID.isEmpty, userID != currentUser?.id else { return }
+        let reporterID = currentUser?.id ?? "unknown"
+        Task {
+            try? await moderationService.reportReview(
+                reviewID: "profile:\(userID)",
+                authorID: userID,
+                authorName: username,
+                reporterID: reporterID,
+                reason: reason
+            )
+        }
     }
 
     func show(for review: Review) -> Show? {
@@ -1740,7 +1853,11 @@ final class NebRatingsStore {
     private func loadDiscoverFeed() async {
         let now = Date()
         let calendar = Calendar.current
-        let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: now)) ?? now
+        // Trailing 30-day window (not the calendar month) so the "past month"
+        // rankings always have a full window of ratings behind them — early in
+        // a calendar month the start-of-month window is nearly empty, which
+        // made the section sparse and lumpy.
+        let pastMonthStart = calendar.date(byAdding: .day, value: -30, to: now) ?? now
         let yearStart = calendar.date(from: calendar.dateComponents([.year], from: now)) ?? now
         let sixtyDaysAgo = calendar.date(byAdding: .day, value: -60, to: now) ?? now
 
@@ -1759,7 +1876,7 @@ final class NebRatingsStore {
             category: .movie, minVoteCount: 5000, sortBy: "vote_average.desc"))
         async let acclaimedTVFetch = fetchDiscover(filter: DiscoverFilter(
             category: .series, minVoteCount: 2000, sortBy: "vote_average.desc"))
-        async let monthRankings = fetchCommunityRankings(since: monthStart)
+        async let monthRankings = fetchCommunityRankings(since: pastMonthStart)
         async let yearRankings = fetchCommunityRankings(since: yearStart)
 
         // Personalized rows kick off now too (concurrent with everything).

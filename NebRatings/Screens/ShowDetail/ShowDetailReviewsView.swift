@@ -32,6 +32,9 @@ struct ShowDetailReviewsView: View {
     /// navigation path.
     @State private var profileDestination: UserProfileDestination?
 
+    /// Shown after reporting a review, so the action gives clear feedback.
+    @State private var showReportedNotice = false
+
     var body: some View {
         let liveByID: [UUID: Review] = Dictionary(
             uniqueKeysWithValues: reviews().map { ($0.id, $0) }
@@ -87,6 +90,11 @@ struct ShowDetailReviewsView: View {
         .navigationDestination(item: $profileDestination) { dest in
             UserProfileView(userID: dest.userID, initialProfile: dest.profile)
         }
+        .alert("Review reported", isPresented: $showReportedNotice) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Thanks — this review is now hidden from you and sent to our moderation team, who will review it and take action on any violation.")
+        }
         .task {
             // Initial sort when the view appears.
             sortedReviewIDs = prioritizedReviews(reviews()).map(\.id)
@@ -139,6 +147,27 @@ struct ShowDetailReviewsView: View {
 
     @ViewBuilder
     private func reviewCard(for review: Review) -> some View {
+        // A blocked author's review is shown blurred (name + text unreadable)
+        // with an unblock affordance, everywhere it would appear (Guideline 1.2).
+        if store.isBlocked(review.authorID) {
+            BlockedReviewCard(review: review)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if let authorID = review.authorID {
+                        Button {
+                            store.unblockUser(userID: authorID)
+                        } label: {
+                            Label("Unblock", systemImage: "hand.raised.slash")
+                        }
+                        .tint(.purple)
+                    }
+                }
+        } else {
+            interactiveReviewCard(review)
+        }
+    }
+
+    @ViewBuilder
+    private func interactiveReviewCard(_ review: Review) -> some View {
         let isOwnReview = store.currentUser?.username == review.author
         let authorProfile = store.cachedProfile(for: review.authorID)
         ReviewCard(
@@ -164,27 +193,37 @@ struct ShowDetailReviewsView: View {
         )
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             if isOwnReview {
-                Button {
+                Button(role: .destructive) {
                     store.deleteReview(review)
                 } label: {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Color.red, in: Circle())
+                    Label("Delete", systemImage: "trash")
                 }
-                .tint(.clear)
 
                 Button {
                     reviewToEdit = review
                 } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(Color.blue, in: Circle())
+                    Label("Edit", systemImage: "pencil")
                 }
-                .tint(.clear)
+                .tint(.blue)
+            } else {
+                // Moderation on others' reviews (Guideline 1.2). Labeled so the
+                // action is obvious; both give clear feedback (report shows a
+                // confirmation, block blurs their card).
+                Button {
+                    store.reportReview(review)
+                    showReportedNotice = true
+                } label: {
+                    Label("Report", systemImage: "flag")
+                }
+                .tint(.orange)
+
+                if let authorID = review.authorID {
+                    Button(role: .destructive) {
+                        store.blockUser(userID: authorID, username: review.author)
+                    } label: {
+                        Label("Block", systemImage: "hand.raised")
+                    }
+                }
             }
         }
     }

@@ -21,9 +21,20 @@ struct ShowDetailAddReviewView: View {
     let userHasReviewForSeason: (Int?) -> Bool
     let userReviewForSeason: (Int?) -> Review?
     let onAddReview: () -> Void
-    
+
+    @State private var showObjectionableAlert = false
+
     private var formIsValid: Bool {
         !newComment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Runs the objectionable-content filter before posting (Guideline 1.2).
+    private func attemptPost() {
+        if ObjectionableContent.isObjectionable(newComment) {
+            showObjectionableAlert = true
+        } else {
+            onAddReview()
+        }
     }
     
     var body: some View {
@@ -178,7 +189,7 @@ struct ShowDetailAddReviewView: View {
                             .focused($isCommentFocused)
                     }
                     
-                    Button(action: onAddReview) {
+                    Button(action: attemptPost) {
                         Label("Post Review", systemImage: "paperplane.fill")
                             .frame(maxWidth: .infinity)
                     }
@@ -187,6 +198,11 @@ struct ShowDetailAddReviewView: View {
                     .disabled(!formIsValid)
                 }
             }
+        }
+        .alert("Let's keep it civil", isPresented: $showObjectionableAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Your review appears to contain objectionable language. Please revise it before posting — NebRatings has zero tolerance for objectionable content.")
         }
     }
 }

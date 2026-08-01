@@ -17,6 +17,7 @@ struct EditReviewView: View {
     /// nil = entire show; otherwise a specific season.
     @State private var selectedSeason: Int?
     @FocusState private var isCommentFocused: Bool
+    @State private var showObjectionableAlert = false
     @Environment(\.colorScheme) private var colorScheme
 
     init(review: Review) {
@@ -95,6 +96,11 @@ struct EditReviewView: View {
                     Button("Done") { isCommentFocused = false }
                         .fontWeight(.semibold)
                 }
+            }
+            .alert("Let's keep it civil", isPresented: $showObjectionableAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Your review appears to contain objectionable language. Please revise it before saving — NebRatings has zero tolerance for objectionable content.")
             }
         }
     }
@@ -292,6 +298,10 @@ struct EditReviewView: View {
 
     private func saveReview() {
         guard formIsValid else { return }
+        if ObjectionableContent.isObjectionable(comment) {
+            showObjectionableAlert = true
+            return
+        }
         store.updateReview(review, comment: comment, rating: rating, newSeason: selectedSeason)
         dismiss()
     }

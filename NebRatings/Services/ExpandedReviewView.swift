@@ -152,6 +152,29 @@ struct ExpandedReviewView: View {
                             }
                             .accessibilityLabel("Share review")
                         }
+                        // Moderation for other people's reviews (Guideline 1.2).
+                        if !isOwnReview {
+                            Menu {
+                                Button {
+                                    store.reportReview(review)
+                                    dismiss()
+                                } label: {
+                                    Label("Report Review", systemImage: "flag")
+                                }
+                                if let authorID = review.authorID {
+                                    Button(role: .destructive) {
+                                        store.blockUser(userID: authorID, username: review.author)
+                                        dismiss()
+                                    } label: {
+                                        Label("Block \(review.author)", systemImage: "hand.raised")
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                                    .foregroundStyle(.primary)
+                            }
+                            .accessibilityLabel("Report or block")
+                        }
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button("Done") {

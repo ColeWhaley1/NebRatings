@@ -22,6 +22,7 @@ struct SettingsView: View {
                 appearanceSection
                 contentPreferencesSection
                 accountSection
+                safetySection
                 contactSection
                 legalSection
             }
@@ -307,6 +308,25 @@ extension SettingsView {
         }
     }
     
+    private var safetySection: some View {
+        Section {
+            NavigationLink(destination: BlockedUsersView()) {
+                HStack {
+                    Label("Blocked Users", systemImage: "hand.raised")
+                    Spacer()
+                    if !store.blockedUserIDs.isEmpty {
+                        Text("\(store.blockedUserIDs.count)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        } header: {
+            Text("Privacy & Safety")
+        } footer: {
+            Text("Review and manage users you've blocked.")
+        }
+    }
+
     private var legalSection: some View {
         Section("Legal") {
             NavigationLink(destination: PrivacyPolicyView()) {

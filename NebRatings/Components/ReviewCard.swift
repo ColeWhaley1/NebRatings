@@ -257,8 +257,89 @@ struct ReviewCard: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: .infinity, alignment: .leading)
         .modifier(ConditionalTapGestureModifier(onTap: onTap, onDoubleTap: doubleTapToLike))
+        // Long-press → Report / Block, for moderating others' content
+        // (App Store Guideline 1.2). Only on other people's reviews.
+        .modifier(ReviewModerationMenuModifier(enabled: canModerate, review: review))
     }
 
+    /// Report/Block is offered only on other users' reviews when signed in, and
+    /// only when we know who wrote it (legacy reviews without an authorID can't
+    /// be attributed to a blockable account).
+    private var canModerate: Bool {
+        currentUserID != nil && !isOwnReview && review.authorID != nil
+    }
+}
+
+/// Shown in place of a blocked author's review, wherever a review would
+/// otherwise appear (App Store Guideline 1.2). The real card is rendered
+/// blurred — so both the username and the review text are unreadable, in case
+/// the username itself is what got the user blocked — under a generic notice
+/// (no name shown) with an inline Unblock affordance.
+struct BlockedReviewCard: View {
+    let review: Review
+    @Environment(NebRatingsStore.self) private var store
+
+    var body: some View {
+        ZStack {
+            ReviewCard(review: review, showCategory: review.showCategory)
+                .blur(radius: 14)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+            VStack(spacing: 8) {
+                Image(systemName: "hand.raised.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+                Text("You blocked this user")
+                    .font(.subheadline.bold())
+                    .multilineTextAlignment(.center)
+                Text("Their review is hidden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Button("Unblock") {
+                    if let authorID = review.authorID { store.unblockUser(userID: authorID) }
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .tint(.purple)
+            }
+            .padding()
+        }
+        .frame(height: ReviewPagination.cardHeight)
+        .frame(maxWidth: .infinity)
+        .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 16))
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+/// Attaches the report/block context menu when `enabled`. Reads the store from
+/// the environment lazily (only inside the tap actions) so review-card previews
+/// without a store injected never touch it.
+private struct ReviewModerationMenuModifier: ViewModifier {
+    let enabled: Bool
+    let review: Review
+    @Environment(NebRatingsStore.self) private var store
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.contextMenu {
+                Button(role: .destructive) {
+                    store.reportReview(review)
+                } label: {
+                    Label("Report Review", systemImage: "flag")
+                }
+                if let authorID = review.authorID {
+                    Button(role: .destructive) {
+                        store.blockUser(userID: authorID, username: review.author)
+                    } label: {
+                        Label("Block \(review.author)", systemImage: "hand.raised")
+                    }
+                }
+            }
+        } else {
+            content
+        }
+    }
 }
 
 #Preview("Short Text - Light") {

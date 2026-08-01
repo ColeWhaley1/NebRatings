@@ -35,6 +35,13 @@ struct UserProfileView: View {
     @State private var showingCompatibility = false
     /// Profile share sheet payload (nil = not presented).
     @State private var sharePayload: SharePayload?
+    /// Moderation (Guideline 1.2) — block confirmation + report acknowledgement.
+    @State private var showingBlockConfirm = false
+    @State private var showingReportConfirm = false
+
+    /// Whether this is someone else's profile (moderation controls only make
+    /// sense for other users).
+    private var isOtherUser: Bool { store.currentUser?.id != userID }
 
     private let reviewsPerPage = 5
 
@@ -51,6 +58,14 @@ struct UserProfileView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                if store.isBlocked(userID) {
+                    Label("You've blocked this user. Their reviews and activity are hidden from you.", systemImage: "hand.raised.fill")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12))
+                }
                 headerSection
                 // Bio, favorite genres/titles, join date.
                 ProfileAboutSection(
@@ -94,7 +109,7 @@ struct UserProfileView: View {
         .navigationTitle(profile?.username ?? "Profile")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 if let profile {
                     Button {
                         Task {
@@ -105,7 +120,50 @@ struct UserProfileView: View {
                     }
                     .accessibilityLabel("Share \(profile.username)'s profile")
                 }
+                if isOtherUser {
+                    Menu {
+                        Button {
+                            store.reportUser(userID: userID, username: profile?.username ?? "user")
+                            showingReportConfirm = true
+                        } label: {
+                            Label("Report User", systemImage: "flag")
+                        }
+                        if store.isBlocked(userID) {
+                            Button {
+                                store.unblockUser(userID: userID)
+                            } label: {
+                                Label("Unblock User", systemImage: "hand.raised.slash")
+                            }
+                        } else {
+                            Button(role: .destructive) {
+                                showingBlockConfirm = true
+                            } label: {
+                                Label("Block User", systemImage: "hand.raised")
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("More options")
+                }
             }
+        }
+        .confirmationDialog(
+            "Block \(profile?.username ?? "this user")?",
+            isPresented: $showingBlockConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Block", role: .destructive) {
+                store.blockUser(userID: userID, username: profile?.username ?? "user")
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("You won't see their reviews or activity, and they'll be removed from your friends. Our team is notified and will review the report.")
+        }
+        .alert("Report received", isPresented: $showingReportConfirm) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Thanks — our team will review this account and take action on any objectionable content.")
         }
         .sheet(item: $sharePayload) { payload in
             ActivityShareSheet(items: payload.items)
@@ -237,7 +295,10 @@ struct UserProfileView: View {
                     pageSize: reviewsPerPage,
                     currentPage: $currentReviewPage
                 ) { review in
-                    if let show = store.show(for: review) {
+                    if store.isBlocked(userID) {
+                        // Blocked: show their review blurred (Guideline 1.2).
+                        BlockedReviewCard(review: review)
+                    } else if let show = store.show(for: review) {
                         NavigationLink(value: ShowWithContext(show: show, initialSeasonFilter: review.season)) {
                             ReviewCard(
                                 review: review,
@@ -261,7 +322,9 @@ struct UserProfileView: View {
     }
 
     private var sortedReviews: [Review] {
-        reviews.sorted { $0.timestamp > $1.timestamp }
+        // `visibleReviews` drops reviews the viewer reported. A blocked user's
+        // reviews are kept and rendered blurred by `reviewsList` (Guideline 1.2).
+        store.visibleReviews(reviews).sorted { $0.timestamp > $1.timestamp }
     }
 
     private func load() async {

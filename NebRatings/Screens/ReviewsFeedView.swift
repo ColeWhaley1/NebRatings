@@ -205,7 +205,10 @@ struct ReviewsFeedContent: View {
 
     @ViewBuilder
     private func feedCard(for review: Review) -> some View {
-        if let show = store.show(for: review) {
+        if store.isBlocked(review.authorID) {
+            // Blocked authors render blurred here too (Guideline 1.2).
+            BlockedReviewCard(review: review)
+        } else if let show = store.show(for: review) {
             let authorProfile = store.cachedProfile(for: review.authorID)
             let isOwn = store.currentUser?.username == review.author
             ReviewCard(review: review,
@@ -248,7 +251,9 @@ struct ReviewsFeedContent: View {
         )
         // Resolve each snapshot id against the live store; drop any that
         // have since been deleted upstream.
-        return sortedSnapshot.compactMap { liveByID[$0.id] }
+        // Drop reviews the viewer reported or whose author they blocked
+        // (Guideline 1.2) — filtered live so a block/report takes effect at once.
+        return sortedSnapshot.compactMap { liveByID[$0.id] }.filter { store.isReviewVisible($0) }
     }
 
     /// Recompute the order snapshot from the current store state. Called

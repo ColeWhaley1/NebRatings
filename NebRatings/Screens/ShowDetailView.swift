@@ -42,7 +42,10 @@ struct ShowDetailView: View {
 
     private func reviews() -> [Review] {
         let showID = displayShow.id
-        var filtered = store.reviews.filter { $0.showID == showID }
+        // Hide reviews the viewer reported. Blocked authors are kept here on
+        // purpose — the reviews section renders them blurred rather than
+        // removing them outright (Guideline 1.2).
+        var filtered = store.reviews.filter { $0.showID == showID && !store.isReviewReported($0) }
         
         if let filterSeason = filterSeason {
             filtered = filtered.filter { $0.season == filterSeason }
