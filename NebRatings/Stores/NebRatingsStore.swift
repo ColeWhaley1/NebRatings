@@ -32,7 +32,10 @@ final class NebRatingsStore {
         var seasonal: [SeasonalCollection] = []
         var trendingWeek: [Show] = []
         var recentlyReleased: [Show] = []
-        var hiddenGems: [Show] = []
+        var popularMovies: [Show] = []
+        var popularTV: [Show] = []
+        var comedies: [Show] = []
+        var actionAdventure: [Show] = []
         var awardWinners: [Show] = []
         var favoriteGenreShows: [Show] = []
         var becauseYouRatedTitle: String?
@@ -88,6 +91,14 @@ final class NebRatingsStore {
     private(set) var reportedReviewIDs: Set<String> = []
     private let blockedUserIDsKey = "blockedUserIDs"
     private let reportedReviewIDsKey = "reportedReviewIDs"
+
+    // MARK: - Update prompt
+
+    /// True when the remote config reports a newer published app version than
+    /// this build. Drives the "update available" prompt at the root.
+    var updateAvailable = false
+    /// The latest published version string, once fetched.
+    private(set) var latestVersion: String?
 
     // Cache for searched shows to avoid re-fetching
     var showCache: [Int: Show] = [:]
@@ -1637,6 +1648,63 @@ final class NebRatingsStore {
         }
     }
 
+    // MARK: - Update prompt
+
+    /// This build's marketing version (e.g. "2.1.0").
+    var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
+    /// Checks remote config for a newer published version and flips
+    /// `updateAvailable`. Silent no-op if the config is unset or unreachable,
+    /// so a missing document never blocks or nags users.
+    func checkForUpdate() async {
+        // `try?` flattens the service's `String?` result to a single optional.
+        guard let latest = try? await appConfigService.fetchLatestVersion(), !latest.isEmpty else { return }
+        latestVersion = latest
+        updateAvailable = Self.isVersion(currentAppVersion, olderThan: latest)
+    }
+
+    /// Outcome of an explicit, user-triggered update check (Settings). Unlike
+    /// `checkForUpdate`, it distinguishes *why* nothing prompted, so a failing
+    /// remote-config setup is diagnosable rather than silent.
+    enum UpdateCheckResult {
+        case updateAvailable(current: String, latest: String)
+        case upToDate(current: String, latest: String)
+        case notConfigured(current: String)   // read succeeded but no latestVersion set
+        case failed(current: String, message: String) // read threw (rules / network)
+    }
+
+    func manualUpdateCheck() async -> UpdateCheckResult {
+        let current = currentAppVersion
+        do {
+            guard let latest = try await appConfigService.fetchLatestVersion(), !latest.isEmpty else {
+                return .notConfigured(current: current)
+            }
+            latestVersion = latest
+            if Self.isVersion(current, olderThan: latest) {
+                updateAvailable = true
+                return .updateAvailable(current: current, latest: latest)
+            }
+            return .upToDate(current: current, latest: latest)
+        } catch {
+            return .failed(current: current, message: error.localizedDescription)
+        }
+    }
+
+    /// Component-wise numeric semantic-version comparison, so "2.10.0" is newer
+    /// than "2.9.0" (a plain string compare would get that wrong).
+    static func isVersion(_ a: String, olderThan b: String) -> Bool {
+        let pa = a.split(separator: ".").map { Int($0) ?? 0 }
+        let pb = b.split(separator: ".").map { Int($0) ?? 0 }
+        for i in 0..<max(pa.count, pb.count) {
+            let x = i < pa.count ? pa[i] : 0
+            let y = i < pb.count ? pb[i] : 0
+            if x != y { return x < y }
+        }
+        return false
+    }
+
     func show(for review: Review) -> Show? {
         // Check cache first, but validate the cached show matches the requested ID
         if let cached = showCache[review.showID] {
@@ -1868,10 +1936,18 @@ final class NebRatingsStore {
             category: .movie, minVoteCount: 50, releasedAfter: sixtyDaysAgo, releasedBefore: now))
         async let recentTVFetch = fetchDiscover(filter: DiscoverFilter(
             category: .series, minVoteCount: 20, releasedAfter: sixtyDaysAgo, releasedBefore: now))
-        async let gemMoviesFetch = fetchDiscover(filter: DiscoverFilter(
-            category: .movie, minVoteAverage: 7.2, minVoteCount: 50, maxVoteCount: 500, sortBy: "vote_average.desc"))
-        async let gemTVFetch = fetchDiscover(filter: DiscoverFilter(
-            category: .series, minVoteAverage: 7.5, minVoteCount: 30, maxVoteCount: 300, sortBy: "vote_average.desc"))
+        async let popularMoviesFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .movie, minVoteCount: 300, sortBy: "popularity.desc"))
+        async let popularTVFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .series, minVoteCount: 150, sortBy: "popularity.desc"))
+        async let comedyMoviesFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .movie, genreIDs: [35], minVoteCount: 200, sortBy: "popularity.desc"))
+        async let comedyTVFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .series, genreIDs: [35], minVoteCount: 100, sortBy: "popularity.desc"))
+        async let actionMoviesFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .movie, genreIDs: [28, 12], genreMatch: .any, minVoteCount: 300, sortBy: "popularity.desc"))
+        async let actionTVFetch = fetchDiscover(filter: DiscoverFilter(
+            category: .series, genreIDs: [10759], minVoteCount: 100, sortBy: "popularity.desc"))
         async let acclaimedMoviesFetch = fetchDiscover(filter: DiscoverFilter(
             category: .movie, minVoteCount: 5000, sortBy: "vote_average.desc"))
         async let acclaimedTVFetch = fetchDiscover(filter: DiscoverFilter(
@@ -1888,12 +1964,15 @@ final class NebRatingsStore {
         feed.seasonal = await seasonalFetch
         feed.trendingWeek = await trendingFetch
         feed.recentlyReleased = interleaveShows(await recentMoviesFetch, await recentTVFetch)
-        feed.hiddenGems = interleaveShows(await gemMoviesFetch, await gemTVFetch)
+        feed.popularMovies = await popularMoviesFetch
+        feed.popularTV = await popularTVFetch
+        feed.comedies = interleaveShows(await comedyMoviesFetch, await comedyTVFetch)
+        feed.actionAdventure = interleaveShows(await actionMoviesFetch, await actionTVFetch)
         feed.awardWinners = interleaveShows(await acclaimedMoviesFetch, await acclaimedTVFetch)
         feed.isLoaded = true
         discoverFeed = feed
-        ImageCache.shared.prefetch((feed.trendingWeek + feed.recentlyReleased
-            + feed.hiddenGems + feed.awardWinners).map(\.posterURL))
+        ImageCache.shared.prefetch((feed.trendingWeek + feed.recentlyReleased + feed.popularMovies
+            + feed.popularTV + feed.comedies + feed.actionAdventure + feed.awardWinners).map(\.posterURL))
 
         // ── Phase 2: personalized rows fill into their slots as they arrive
         // (empty rows render nothing, so nothing flashes). ──

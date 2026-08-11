@@ -37,10 +37,22 @@ import FirebaseFirestore
 protocol AppConfigService {
     /// Remote seasonal catalog, or nil when unset/unreachable (use built-in).
     func fetchSeasonalCollections() async throws -> [SeasonalCollection]?
+    /// The latest published app version (e.g. "2.1.0"), read from
+    /// `appConfig/version → latestVersion`. nil when unset/unreachable — the
+    /// app then simply doesn't prompt for an update. Bump this Firestore field
+    /// on each App Store release to prompt users on older versions.
+    func fetchLatestVersion() async throws -> String?
 }
 
 struct FirebaseAppConfigService: AppConfigService {
     private var db: Firestore { Firestore.firestore() }
+
+    func fetchLatestVersion() async throws -> String? {
+        let document = try await db.collection("appConfig").document("version").getDocument()
+        guard document.exists, let data = document.data() else { return nil }
+        let version = (data["latestVersion"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (version?.isEmpty == false) ? version : nil
+    }
 
     func fetchSeasonalCollections() async throws -> [SeasonalCollection]? {
         let document = try await db.collection("appConfig").document("seasonalCollections").getDocument()

@@ -35,6 +35,12 @@ struct ContentView: View {
     @State private var linkedShow: Show?
     @State private var linkedProfile: ProfileLinkTarget?
     @State private var linkedList: ShowList?
+
+    // MARK: Update prompt
+    @State private var showingUpdatePrompt = false
+    /// The version the user last tapped "Not Now" on — so we don't nag again
+    /// for the same release (a newer one still prompts).
+    @AppStorage("dismissedUpdateVersion") private var dismissedUpdateVersion = ""
     
     private var selectedColorScheme: ColorScheme? {
         switch colorScheme {
@@ -87,6 +93,19 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(selectedColorScheme)
+        .task {
+            // Ask remote config whether a newer version has shipped.
+            await store.checkForUpdate()
+            maybeShowUpdatePrompt()
+        }
+        .alert("Update Available", isPresented: $showingUpdatePrompt) {
+            Button("Update") { AppStoreReviewHelper.openAppStorePage() }
+            Button("Not Now", role: .cancel) {
+                dismissedUpdateVersion = store.latestVersion ?? ""
+            }
+        } message: {
+            Text("A newer version of NebRatings (\(store.latestVersion ?? "")) is available with the latest features and fixes. Please update for the best experience.")
+        }
         .onChange(of: store.needsContentPreferencePrompt) { _, _ in
             maybeOfferContentPreferencePrompt()
         }
@@ -103,7 +122,16 @@ struct ContentView: View {
         }
         .onChange(of: store.isAuthenticated) { _, isAuthed in
             // A link that arrived before sign-in resolves once we're in.
-            if isAuthed { resolvePendingLink() }
+            if isAuthed {
+                resolvePendingLink()
+                // Re-run the update check now that we have an auth token — the
+                // launch-time check can hit Firestore before auth restores and
+                // get denied if the config isn't publicly readable.
+                Task {
+                    await store.checkForUpdate()
+                    maybeShowUpdatePrompt()
+                }
+            }
         }
         .sheet(item: $linkedShow) { show in
             NavigationStack {
@@ -143,6 +171,15 @@ struct ContentView: View {
             }
             .environment(store)
         }
+    }
+
+    /// Presents the "update available" prompt when a newer version has shipped
+    /// and the user hasn't already dismissed this specific version.
+    private func maybeShowUpdatePrompt() {
+        guard store.updateAvailable,
+              let latest = store.latestVersion,
+              latest != dismissedUpdateVersion else { return }
+        showingUpdatePrompt = true
     }
 
     /// Shows the onboarding content-preference prompt exactly once, ever.

@@ -167,7 +167,7 @@ struct MarketingSnapshotView: View {
             show(1241982, "Moana", .movie, "/zKVgiv5qHCvCLT4A2ymJi5QeXDH.jpg"),
             show(125988, "Silo", .series, "/gMYZZvnkVNTqSVnVCphWbPXwWwb.jpg")
         ]
-        feed.hiddenGems = [
+        feed.popularMovies = [
             show(129, "Spirited Away", .movie, "/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg"),
             show(497, "The Green Mile", .movie, "/8VG8fDNiy50H4FedGwdSVUPoaJe.jpg")
         ]

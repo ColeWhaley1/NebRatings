@@ -61,7 +61,19 @@ enum AppStoreReviewHelper {
         
         let urlString = "https://apps.apple.com/app/id\(id)?action=write-review"
         guard let url = URL(string: urlString) else { return }
-        
+
+        UIApplication.shared.open(url)
+    }
+
+    /// Opens this app's App Store product page (used by the "update available"
+    /// prompt). Works on device; the simulator may open Safari or no-op.
+    static func openAppStorePage() {
+        let id = appStoreID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty, id.allSatisfy({ $0.isNumber }) else { return }
+
+        let urlString = "https://apps.apple.com/app/id\(id)"
+        guard let url = URL(string: urlString) else { return }
+
         UIApplication.shared.open(url)
     }
 }

@@ -73,7 +73,10 @@ struct DiscoverHomeView: View {
                     )
 
                     ShowPosterRow(title: "Recently Released", shows: feed.recentlyReleased)
-                    ShowPosterRow(title: "Hidden Gems", subtitle: "Great, but under the radar", shows: feed.hiddenGems)
+                    ShowPosterRow(title: "Popular Movies", subtitle: "What everyone's watching", shows: feed.popularMovies)
+                    ShowPosterRow(title: "Popular TV Shows", subtitle: "Trending series right now", shows: feed.popularTV)
+                    ShowPosterRow(title: "Comedies", subtitle: "Laugh-out-loud picks", shows: feed.comedies)
+                    ShowPosterRow(title: "Action & Adventure", subtitle: "Edge-of-your-seat thrills", shows: feed.actionAdventure)
                     ShowPosterRow(title: "Award Winners", subtitle: "All-time critical darlings", shows: feed.awardWinners)
                 }
             }

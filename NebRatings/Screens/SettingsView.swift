@@ -15,7 +15,11 @@ struct SettingsView: View {
     @State private var isDeletingAccount = false
     @State private var deleteError: String?
     @State private var showingChangePassword = false
-    
+    @State private var isCheckingUpdate = false
+    @State private var updateCheckMessage: String?
+    @State private var updateCheckOffersUpdate = false
+    @State private var showingUpdateCheckResult = false
+
     var body: some View {
         NavigationStack {
             List {
@@ -25,11 +29,70 @@ struct SettingsView: View {
                 safetySection
                 contactSection
                 legalSection
+                aboutSection
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.large)
+            .alert("Check for Updates", isPresented: $showingUpdateCheckResult) {
+                if updateCheckOffersUpdate {
+                    Button("Update") { AppStoreReviewHelper.openAppStorePage() }
+                    Button("Not Now", role: .cancel) {}
+                } else {
+                    Button("OK", role: .cancel) {}
+                }
+            } message: {
+                Text(updateCheckMessage ?? "")
+            }
         }
+    }
+
+    private var aboutSection: some View {
+        Section {
+            HStack {
+                Text("Version")
+                Spacer()
+                Text(store.currentAppVersion)
+                    .foregroundStyle(.secondary)
+            }
+            Button {
+                Task {
+                    isCheckingUpdate = true
+                    let result = await store.manualUpdateCheck()
+                    isCheckingUpdate = false
+                    applyUpdateCheckResult(result)
+                }
+            } label: {
+                HStack {
+                    Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                    if isCheckingUpdate {
+                        Spacer()
+                        ProgressView().scaleEffect(0.8)
+                    }
+                }
+            }
+            .disabled(isCheckingUpdate)
+        } header: {
+            Text("About")
+        }
+    }
+
+    private func applyUpdateCheckResult(_ result: NebRatingsStore.UpdateCheckResult) {
+        switch result {
+        case let .updateAvailable(current, latest):
+            updateCheckMessage = "A new version (\(latest)) is available. You're on \(current)."
+            updateCheckOffersUpdate = true
+        case let .upToDate(current, latest):
+            updateCheckMessage = "You're up to date. (Version \(current); latest published is \(latest).)"
+            updateCheckOffersUpdate = false
+        case let .notConfigured(current):
+            updateCheckMessage = "You're on version \(current). No latest version is set on the server yet — add a document 'version' in the 'appConfig' collection with a string field 'latestVersion'."
+            updateCheckOffersUpdate = false
+        case let .failed(current, message):
+            updateCheckMessage = "Couldn't check for updates (you're on \(current)): \(message)"
+            updateCheckOffersUpdate = false
+        }
+        showingUpdateCheckResult = true
     }
     
     private var appearanceSection: some View {
